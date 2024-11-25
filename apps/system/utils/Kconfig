@@ -201,6 +201,12 @@ config ENABLE_PS
 	---help---
 		List of tasks/threads
 
+config ENABLE_SILENT_REBOOT
+	bool "Silent reboot"
+	default y
+	---help---
+		Show silent reboot status
+
 config ENABLE_STACKMONITOR
 	bool "Stack monitor"
 	default n

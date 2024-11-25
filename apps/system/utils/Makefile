@@ -149,6 +149,10 @@ ifeq ($(CONFIG_ENABLE_PS),y)
 CSRCS += utils_ps.c
 endif
 
+ifeq ($(CONFIG_ENABLE_SILENT_REBOOT),y)
+CSRCS += utils_silent_reboot.c
+endif
+
 ifeq ($(CONFIG_ENABLE_STACKMONITOR),y)
 CSRCS += utils_stackmonitor.c
 endif

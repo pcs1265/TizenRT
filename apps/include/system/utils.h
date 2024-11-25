@@ -89,6 +89,10 @@ int utils_killall(int argc, char **args);
 int utils_ps(int argc, char **args);
 #endif
 
+#if defined(CONFIG_ENABLE_SILENT_REBOOT)
+int utils_silent_reboot(int argc, char **args);
+#endif
+
 #if defined(CONFIG_ENABLE_STACKMONITOR)
 int utils_stackmonitor(int argc, char **args);
 #endif

@@ -61,6 +61,9 @@ const static tash_cmdlist_t system_cmds[] = {
 #if defined(CONFIG_ENABLE_ENV_SET)
 	{"setenv",   utils_env_set,      TASH_EXECMD_SYNC},
 #endif
+#if defined(CONFIG_ENABLE_SILENT_REBOOT)
+	{"silent_reboot",   utils_silent_reboot, TASH_EXECMD_SYNC},
+#endif
 #if defined(CONFIG_ENABLE_STACKMONITOR)
 	{"stkmon",   utils_stackmonitor, TASH_EXECMD_SYNC},
 #endif
