@@ -414,6 +414,8 @@ static int lcd_getpower(FAR struct lcd_dev_s *dev)
 static int lcd_setpower(FAR struct lcd_dev_s *dev, int power)
 {
 	FAR struct mipi_lcd_dev_s *priv = (FAR struct mipi_lcd_dev_s *)dev;
+	uint8_t backlit_inv = 0;
+
 	if (power > CONFIG_LCD_MAXPOWER) {
 		lcddbg("Power exceeds CONFIG_LCD_MAXPOWER %d\n", power);
 		return -EINVAL;
@@ -444,12 +446,45 @@ static int lcd_setpower(FAR struct lcd_dev_s *dev, int power)
 		if (priv->power == 0) {
 			lcddbg("Powering up the LCD\n");
 			priv->config->power_on();
+
+			/* !!! ------ DRAFT ------ !!! */
+			//Vendor Check for AVD LCD
+			{
+				//Holitech LCD returns the manufacturer ID in the 0xDC command.
+				lcm_setting_table_t read_display_cmd = {0xDC, 0, {0x00}};
+				uint8_t rxbuf[2] = {0xFF,0xFF};
+				read_response(priv, read_display_cmd, rxbuf, 2);
+				if(rxbuf[0] == 0x1){
+					lcddbg("AVD LCD\n");
+					backlit_inv = 0;
+				}
+			}
+
+			//Vendor Check for Holitech LCD
+			{
+				//Holitech LCD returns the manufacturer ID in the 0xDA command.
+				lcm_setting_table_t read_display_cmd = {0xDA, 0, {0x00}};
+				uint8_t rxbuf[2] = {0xFF,0xFF};
+				read_response(priv, read_display_cmd, rxbuf, 2);
+				if(rxbuf[0] == 0x2){
+					lcddbg("Holitech LCD\n");
+					backlit_inv = 1;
+				}
+
+			}
 			/* We need to send init cmd after LCD IC power on */
 			if (send_init_cmd(priv, lcd_init_cmd_g) != OK) {
 				lcddbg("ERROR: LCD Init sequence failed\n");
 			}
 		}
-		priv->config->backlight(power);
+
+		//Some LCD have inverted backlight control logic
+		if(backlit_inv){
+			priv->config->backlight(CONFIG_LCD_MAXPOWER - power);
+		}else{
+			priv->config->backlight(power);
+		}
+		
 	}
 
 	priv->power = power;
