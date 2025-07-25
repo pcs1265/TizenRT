@@ -1,0 +1,141 @@
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+//Original file name: __config_site.in
+
+#ifndef _LIBCPP___CONFIG_SITE
+#define _LIBCPP___CONFIG_SITE
+
+#include <tinyara/config.h>
+
+/* Kconfig based configuration */
+#ifdef CONFIG_LIBCPP_ABI_VERSION
+#  define _LIBCPP_ABI_VERSION CONFIG_LIBCPP_ABI_VERSION
+#endif
+
+// #ifdef CONFIG_LIBCPP_ABI_NAMESPACE
+// #  define _LIBCPP_ABI_NAMESPACE CONFIG_LIBCPP_ABI_NAMESPACE
+// #endif
+
+// #ifdef CONFIG_LIBCPP_ABI_FORCE_ITANIUM
+// #  define _LIBCPP_ABI_FORCE_ITANIUM
+// #endif
+
+// #ifdef CONFIG_LIBCPP_ABI_FORCE_MICROSOFT
+// #  define _LIBCPP_ABI_FORCE_MICROSOFT
+// #endif
+
+#ifdef CONFIG_LIBCPP_HAS_NO_THREADS
+#  define _LIBCPP_HAS_NO_THREADS
+#endif
+
+#ifdef CONFIG_LIBCPP_HAS_NO_MONOTONIC_CLOCK
+#  define _LIBCPP_HAS_NO_MONOTONIC_CLOCK
+#endif
+
+#ifdef CONFIG_LIBCPP_HAS_MUSL_LIBC
+#  define _LIBCPP_HAS_MUSL_LIBC
+#endif
+
+#ifdef CONFIG_LIBCPP_HAS_THREAD_API_PTHREAD
+#  define _LIBCPP_HAS_THREAD_API_PTHREAD
+#endif
+
+// #ifdef CONFIG_LIBCPP_HAS_THREAD_API_EXTERNAL
+// #  define _LIBCPP_HAS_THREAD_API_EXTERNAL
+// #endif
+
+// #ifdef CONFIG_LIBCPP_HAS_THREAD_API_WIN32
+// #  define _LIBCPP_HAS_THREAD_API_WIN32
+// #endif
+
+#ifdef CONFIG_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS
+#  define _LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS
+#endif
+
+#ifdef CONFIG_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS
+#  define _LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS
+#endif
+
+#ifdef CONFIG_LIBCPP_NO_VCRUNTIME
+#  define _LIBCPP_NO_VCRUNTIME
+#endif
+
+// #ifdef CONFIG_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
+// #  define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION CONFIG_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
+// #endif
+
+#ifdef CONFIG_LIBCPP_HAS_NO_FILESYSTEM
+#  define _LIBCPP_HAS_NO_FILESYSTEM
+#endif
+
+#ifdef CONFIG_LIBCPP_HAS_NO_RANDOM_DEVICE
+#  define _LIBCPP_HAS_NO_RANDOM_DEVICE
+#endif
+
+#ifdef CONFIG_LIBCPP_HAS_NO_LOCALIZATION
+#  define _LIBCPP_HAS_NO_LOCALIZATION
+#endif
+
+#ifdef CONFIG_LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  define _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#endif
+
+#ifdef CONFIG_LIBCPP_ENABLE_ASSERTIONS_DEFAULT
+#  define _LIBCPP_ENABLE_ASSERTIONS_DEFAULT 1
+#else
+#  define _LIBCPP_ENABLE_ASSERTIONS_DEFAULT 0
+#endif
+
+/* PSTL backends */
+#ifdef CONFIG_LIBCPP_PSTL_CPU_BACKEND_SERIAL
+#  define _LIBCPP_PSTL_CPU_BACKEND_SERIAL
+#endif
+
+#ifdef CONFIG_LIBCPP_PSTL_CPU_BACKEND_THREAD
+#  define _LIBCPP_PSTL_CPU_BACKEND_THREAD
+#endif
+
+#ifdef CONFIG_LIBCPP_PSTL_CPU_BACKEND_LIBDISPATCH
+#  define _LIBCPP_PSTL_CPU_BACKEND_LIBDISPATCH
+#endif
+
+/* Hardening */
+#ifdef CONFIG_LIBCPP_ENABLE_HARDENED_MODE_DEFAULT
+#  define _LIBCPP_ENABLE_HARDENED_MODE_DEFAULT 1
+#else
+#  define _LIBCPP_ENABLE_HARDENED_MODE_DEFAULT 0
+#endif
+
+#ifdef CONFIG_LIBCPP_ENABLE_DEBUG_MODE_DEFAULT
+#  define _LIBCPP_ENABLE_DEBUG_MODE_DEFAULT 1
+#else
+#  define _LIBCPP_ENABLE_DEBUG_MODE_DEFAULT 0
+#endif
+
+// __USE_MINGW_ANSI_STDIO gets redefined on MinGW
+#ifdef __clang__
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wmacro-redefined"
+#endif
+
+/* Additional ABI defines */
+// #ifdef CONFIG_LIBCPP_ABI_DEFINES
+// #  define _LIBCPP_ABI_DEFINES CONFIG_LIBCPP_ABI_DEFINES
+// #endif
+
+/* Extra site-specific defines */
+// #ifdef CONFIG_LIBCPP_EXTRA_SITE_DEFINES
+// #  define _LIBCPP_EXTRA_SITE_DEFINES CONFIG_LIBCPP_EXTRA_SITE_DEFINES
+// #endif
+
+#ifdef __clang__
+#  pragma clang diagnostic pop
+#endif
+
+#endif // _LIBCPP___CONFIG_SITE
