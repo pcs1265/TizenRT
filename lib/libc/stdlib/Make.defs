@@ -57,6 +57,8 @@ CSRCS += lib_itoa.c lib_labs.c lib_llabs.c
 CSRCS += lib_bsearch.c lib_rand.c lib_qsort.c
 CSRCS += lib_strtol.c lib_strtoll.c lib_strtoul.c lib_strtoull.c
 CSRCS += lib_strtod.c lib_strtof.c lib_strtold.c lib_checkbase.c
+CSRCS += lib_atof.c lib_atoi.c lib_atol.c lib_atoll.c
+CSRCS += lib_aligned_alloc.c
 
 ifeq ($(CONFIG_FS_WRITABLE),y)
 CSRCS += lib_mktemp.c __randname.c lib_mkstemp.c
@@ -64,6 +66,8 @@ endif
 
 ifeq ($(CONFIG_LIBC_WCHAR),y)
 CSRCS += lib_mbtowc.c lib_wctomb.c
+CSRCS += lib_mblen.c lib_mbstowcs.c lib_wcstombs.c
+
 endif
 
 # Add the stdlib directory to the build

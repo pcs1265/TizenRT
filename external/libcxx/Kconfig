@@ -1,0 +1,115 @@
+menu "libc++ Configuration"
+    depends on LIBCXX
+
+    config LIBCPP_ABI_VERSION
+        int "ABI Version"
+        default 1
+        help
+            Specify the ABI version for libc++
+
+    config LIBCPP_HAS_NO_THREADS
+        bool "Disable Thread Support"
+        default n
+        help
+            Define if the target platform has no thread support
+
+    config LIBCPP_HAS_NO_MONOTONIC_CLOCK
+        bool "Disable Monotonic Clock"
+        default n
+        help
+            Define if the target platform has no monotonic clock
+
+    config LIBCPP_HAS_MUSL_LIBC
+        bool "Enable Musl Libc Support"
+        default n
+        help
+            Define if using Musl libc implementation
+
+    config LIBCPP_HAS_THREAD_API_PTHREAD
+        bool "Enable Pthread Thread API"
+        default y
+        help
+            Define if using pthread thread API
+
+    config LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS
+        bool "Disable Visibility Annotations"
+        default n
+        help
+            Disable visibility annotations for symbols
+
+    config LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS
+        bool "Disable Vendor Availability Annotations"
+        default n
+        help
+            Disable vendor availability annotations
+
+    config LIBCPP_NO_VCRUNTIME
+        bool "Disable VC Runtime"
+        default n
+        help
+            Disable VC runtime dependencies
+
+    config LIBCPP_HAS_NO_FILESYSTEM
+        bool "Disable Filesystem Support"
+        default n
+        help
+            Disable filesystem library support
+
+    config LIBCPP_HAS_NO_RANDOM_DEVICE
+        bool "Disable Random Device Support"
+        default n
+        help
+            Disable random_device support
+
+    config LIBCPP_HAS_NO_LOCALIZATION
+        bool "Disable Localization Support"
+        default n
+        help
+            Disable localization support
+
+    config LIBCPP_HAS_NO_WIDE_CHARACTERS
+        bool "Disable Wide Character Support"
+        default n
+        help
+            Disable wide character support
+
+    config LIBCPP_ENABLE_ASSERTIONS_DEFAULT
+        bool "Enable Assertions by Default"
+        default y
+        help
+            Enable assertions in libc++ by default
+
+    choice
+        prompt "Parallel STL CPU Backend"
+        default LIBCPP_PSTL_CPU_BACKEND_SERIAL
+        help
+            Select the CPU backend for Parallel STL implementation
+
+    config LIBCPP_PSTL_CPU_BACKEND_SERIAL
+        bool "Serial backend"
+        help
+            Single-threaded sequential execution (default)
+
+    config LIBCPP_PSTL_CPU_BACKEND_THREAD
+        bool "Thread backend"
+        help
+            Multi-threaded execution using std::thread
+
+    config LIBCPP_PSTL_CPU_BACKEND_LIBDISPATCH
+        bool "Libdispatch backend"
+        help
+            Multi-threaded execution using GCD/libdispatch
+    endchoice
+
+    config LIBCPP_ENABLE_HARDENED_MODE_DEFAULT
+        bool "Enable Hardened Mode by Default"
+        default n
+        help
+            Enable hardened mode in libc++ by default
+
+    config LIBCPP_ENABLE_DEBUG_MODE_DEFAULT
+        bool "Enable Debug Mode by Default"
+        default n
+        help
+            Enable debug mode in libc++ by default
+endmenu

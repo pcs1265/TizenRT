@@ -58,13 +58,14 @@ ASRCS =
 CSRCS =
 
 # Add the libcxx sources
-
-CXXSRCS = algorithm.cxx any.cxx bind.cxx chrono.cxx condition_variable.cxx
-CXXSRCS += debug.cxx future.cxx hash.cxx ios.cxx iostream.cxx
-CXXSRCS += memory.cxx mutex.cxx new.cxx optional.cxx random.cxx regex.cxx
-CXXSRCS += shared_mutex.cxx string.cxx strstream.cxx system_error.cxx
-CXXSRCS += thread.cxx typeinfo.cxx utility.cxx valarray.cxx vector.cxx
-CXXSRCS += locale.cxx
+CXXSRCS = 
+CXXSRCS += vector.cxx
+# CXXSRCS = algorithm.cxx any.cxx bind.cxx chrono.cxx condition_variable.cxx
+# CXXSRCS += debug.cxx future.cxx hash.cxx ios.cxx iostream.cxx
+# CXXSRCS += memory.cxx mutex.cxx new.cxx optional.cxx random.cxx regex.cxx
+# CXXSRCS += shared_mutex.cxx string.cxx strstream.cxx system_error.cxx
+# CXXSRCS += thread.cxx typeinfo.cxx utility.cxx valarray.cxx vector.cxx
+# CXXSRCS += locale.cxx
 
 # Exception handling logic
 

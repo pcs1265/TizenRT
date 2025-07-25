@@ -61,9 +61,22 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
+/* The below definition convert __INT32_TYPE__ from 'int'/'signed int' or
+ * 'long int'/signed long int' to '+2'/'+0 +2' or '+4 +2'/'+0 +4 +2', and
+ * then make the expression of '__INT32_TYPE__ == int' valid.
+ */
+
+#define signed      +0
+#define int         +2
+#define long        +4
+
 #define PRId8       "d"
 #define PRId16      "d"
-#define PRId32      "d"
+#if defined(__INT32_TYPE__) && __INT32_TYPE__ == int
+#  define PRId32    "d"
+#else
+#  define PRId32    "ld"
+#endif
 #define PRId64      "lld"
 
 #define PRIdLEAST8  "d"
@@ -81,7 +94,11 @@
 
 #define PRIi8       "i"
 #define PRIi16      "i"
-#define PRIi32      "i"
+#if defined(__INT32_TYPE__) && __INT32_TYPE__ == int
+#  define PRIi32    "i"
+#else
+#  define PRIi32    "li"
+#endif
 #define PRIi64      "lli"
 
 #define PRIiLEAST8  "i"
@@ -258,5 +275,28 @@
 
 #define SCNxMAX     "llx"
 #define SCNxPTR     "x"
+
+#define INT8_C(x)   x
+#define INT16_C(x)  x
+#if defined(__INT32_TYPE__) && __INT32_TYPE__ == int
+#  define INT32_C(x) x
+#else
+#  define INT32_C(x) x ## l
+#endif
+#define INT64_C(x)  x ## ll
+
+#define UINT8_C(x)  x
+#define UINT16_C(x) x
+#if defined(__INT32_TYPE__) && __INT32_TYPE__ == int
+#  define UINT32_C(x) x ## u
+#else
+#  define UINT32_C(x) x ## ul
+#endif
+#define UINT64_C(x) x ## ull
+
+#undef signed
+#undef unsigned
+#undef int
+#undef long
 
 #endif /* __ARCH_ARM_INCLUDE_INTTYPES_H */

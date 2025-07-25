@@ -58,6 +58,8 @@ config LIBCXX
 
 if LIBCXX
 
+source "$EXTERNALDIR/libcxx/Kconfig"
+
 config LIBCXX_EXCEPTION
 	bool "Enable Exception Suppport"
 	default y
