@@ -59,6 +59,8 @@
 #include <cstdio>
 #include <debug.h>
 
+#include <string>
+
 #include <tinyara/init.h>
 
 //***************************************************************************
