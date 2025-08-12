@@ -153,7 +153,11 @@ else
 endif
 
 ARCHCFLAGS += -fno-common
-ARCHCXXFLAGS += -fno-common -nostdinc++
+ARCHCXXFLAGS += -fno-common
+
+ifneq ($(CONFIG_LIBCXXTOOLCHAIN),y)
+  ARCHCXXFLAGS += -nostdinc++
+endif
 
 ARCHCFLAGS += -Wall -Wstrict-prototypes -Wshadow -Wundef
 ARCHCXXFLAGS += -Wall -Wshadow -Wundef
@@ -240,4 +244,8 @@ endif
 
 ifeq ($(CONFIG_ARCH_COVERAGE),y)
   EXTRA_LIBS += $(wildcard $(shell $(CC) $(ARCHCPUFLAGS) --print-file-name=libgcov.a))
+endif
+
+ifeq ($(CONFIG_LIBCXXTOOLCHAIN),y)
+  EXTRA_LIBS += $(wildcard $(shell $(CC) $(ARCHCPUFLAGS) --print-file-name=libstdc++.a))
 endif

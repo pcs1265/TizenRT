@@ -123,34 +123,6 @@
  */
 
 /**
- * @brief put a byte on a stream
- * @details @b #include <stdio.h> \n
- * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
- * @since TizenRT v1.0
- */
-#define putc(c, s) fputc((c), (s))
-/**
- * @brief put a byte on a stdout stream
- * @details @b #include <stdio.h> \n
- * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
- * @since TizenRT v1.0
- */
-#define putchar(c) fputc(c, stdout)
-/**
- * @brief get a byte from a stream
- * @details @b #include <stdio.h> \n
- * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
- * @since TizenRT v1.0
- */
-#define getc(s)    fgetc(s)
-/**
- * @brief get a byte from a stdin stream
- * @details @b #include <stdio.h> \n
- * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
- * @since TizenRT v1.0
- */
-#define getchar()  fgetc(stdin)
-/**
  * @cond
  * @internal
  */
@@ -206,6 +178,34 @@ extern "C" {
 /* ANSI-like File System Interfaces */
 
 /* Operations on streams (FILE) */
+/**
+ * @brief put a byte on a stream
+ * @details @b #include <stdio.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+int putc(int c, FAR FILE *stream);
+/**
+ * @brief put a byte on a stdout stream
+ * @details @b #include <stdio.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+int putchar(int c);
+/**
+ * @brief get a byte from a stream
+ * @details @b #include <stdio.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+int getc(FAR FILE *stream);
+/**
+ * @brief get a byte from a stdin stream
+ * @details @b #include <stdio.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+int getchar(void);
 /**
  * @cond
  * @internal
@@ -334,6 +334,13 @@ size_t fread(FAR void *ptr, size_t size, size_t n_items, FAR FILE *stream);
  */
 int fseek(FAR FILE *stream, long int offset, int whence);
 /**
+ * @brief reposition a file-position indicator in a stream
+ * @details @b #include <stdio.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+int fseeko(FAR FILE *stream, off_t offset, int whence);
+/**
  * @brief set current file position
  * @details @b #include <stdio.h> \n
  * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
@@ -348,6 +355,14 @@ int fsetpos(FAR FILE *stream, FAR fpos_t *pos);
  */
 long ftell(FAR FILE *stream);
 /**
+ * @brief return a file offset in a stream
+ * @details @b #include <stdio.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+long ftello(FAR FILE *stream);
+/**
+ * 
  * @brief binary output
  * @details @b #include <stdio.h> \n
  * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)

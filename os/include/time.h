@@ -142,6 +142,9 @@
 /* tm_year of struct tm means years since 1900 */
 #define TM_YEAR_BASE       1900
 
+#define timelocal                 mktime
+#define strftime_l(s, m, f, t, l) strftime(s, m, f, t)
+
 /********************************************************************************
  * Public Types
  ********************************************************************************/

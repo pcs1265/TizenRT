@@ -22,6 +22,7 @@ config HAVE_CXX
 
 if HAVE_CXX
 
+
 choice CXX_VERSION
 	prompt "c++version"
 	default CXX_VERSION_11
@@ -37,6 +38,7 @@ config CXX_VERSION_17
 
 endchoice
 
+
 config CXX_NEWLONG
 	bool "size_t is type long"
 	default n
@@ -45,40 +47,60 @@ config CXX_NEWLONG
 		C++ library routines because the TinyAra size_t might not have
 		the same underlying type as your toolchain's size_t.
 
+choice
+	prompt "C++ Library"
+	default LIBCXX
 
-comment "LLVM C++ Library (libcxx)"
+config LIBCXXTOOLCHAIN
+	bool "Toolchain C++ support"
+	select HAVE_CXXINITIALIZE if BUILD_FLAT
+	select BINFMT_CONSTRUCTORS if APP_BINARY_SEPARATION
+	select LIBC_LOCALE
+	---help---
+		Use Standard C++ library from toolchain.
+
+#config LIBCXXMINI
+#	bool "Basic C++ support"
+#	---help---
+#		A fragmentary C++ library that will allow to build only
+#		the simplest of C++ applications. Only contain basic C++
+#		runtime support function.
 
 config LIBCXX
-	bool "Build LLVM libcxx"
-	default n
+	bool "LLVM libc++ C++ Standard Library"
 	select HAVE_CXXINITIALIZE if BUILD_FLAT
 	select BINFMT_CONSTRUCTORS if APP_BINARY_SEPARATION
 	---help---
-		LLVM libc++ can be built by selecting this option.
+		LLVM "libc++" C++ Standard Library
+		https://libcxx.llvm.org/
 
-if LIBCXX
+endchoice
 
-config LIBCXX_EXCEPTION
+config CXX_EXCEPTION
 	bool "Enable Exception Suppport"
 	default y
 	---help---
-		Enable exception support in libc++.
+		Enable exception support in C++.
 
 		NOTE: C++ exception support requires toolchain version 10.3.1. If you
 		are enabling C++ exception then use docker image version 2.0.0. Use
 		menuconfig (Build Setup -> Docker Image Version) to set CONFIG_DOCKER_VERSION=2.0.0
 
-config LIBCXX_IOSTREAM_BUFSIZE
-	int "IO Stream Buffer Size"
-	default 32
+config CXX_RTTI
+	bool "Enable RTTI Support"
 
-config LIBCXX_HAVE_LIBSUPCXX
+config CXX_WCHAR
+	bool "Enable Wide Character Support"
+
+config CXX_LOCALIZATION
+	bool "Enable Locale and Stream Support"
+	depends on LIBC_LOCALE
+
+config CXX_HAVE_LIBSUPCXX
 	bool "Have libsupc++ (required)"
 	default y
 	---help---
 		Select if your toolchain provides libsupc++.  This option is required
 		at present because the built-in libsupc++ support is incomplete.
-
-endif
 
 endif

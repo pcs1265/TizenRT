@@ -107,6 +107,12 @@
 #define environ get_environ_ptr()
 #endif
 
+#define strtof_l(s, e, l)      strtof(s, e)
+#define strtod_l(s, e, l)      strtod(s, e)
+#define strtold_l(s, e, l)     strtold(s, e)
+#define strtoll_l(s, e, b, l)  strtoll(s, e, b)
+#define strtoull_l(s, e, b, l) strtoull(s, e, b)
+
 /****************************************************************************
  * Global Type Definitions
  ****************************************************************************/
@@ -320,6 +326,15 @@ void _exit(int status);			/* See unistd.h */
  */
 #define   _Exit(s) _exit(s)
 
+
+/* System() command is not implemented in the TizenRT libc because it is so
+ * entangled with shell logic. system() is prototyped here, however, for
+ * standards compatibility.
+ */
+
+#if !defined(__KERNEL__) || defined(CONFIG_BUILD_FLAT)
+int system(FAR const char *cmd);
+#endif
 /* String to binary conversions */
 /**
  * @ingroup STDLIB_LIBC
@@ -387,7 +402,7 @@ float strtof(FAR const char *str, FAR char **endptr);
  * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
  * @since TizenRT v1.0
  */
-#define atoi(nptr)  strtol((nptr), NULL, 10)
+int atoi(FAR const char *nptr);
 /**
  * @ingroup STDLIB_LIBC
  * @brief convert a string to a long integer
@@ -395,7 +410,7 @@ float strtof(FAR const char *str, FAR char **endptr);
  * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
  * @since TizenRT v1.0
  */
-#define atol(nptr)  strtol((nptr), NULL, 10)
+long atol(FAR const char *nptr);
 #ifdef CONFIG_HAVE_LONG_LONG
 /**
  * @ingroup STDLIB_LIBC
@@ -404,7 +419,7 @@ float strtof(FAR const char *str, FAR char **endptr);
  * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
  * @since TizenRT v1.0
  */
-#define atoll(nptr) strtoll((nptr), NULL, 10)
+long long atoll(FAR const char *nptr);
 #endif
 /**
  * @ingroup STDLIB_LIBC
@@ -413,7 +428,7 @@ float strtof(FAR const char *str, FAR char **endptr);
  * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
  * @since TizenRT v1.0
  */
-#define atof(nptr)  strtod((nptr), NULL)
+double atof(FAR const char *nptr);
 
 /* Binary to string conversions */
 /**
@@ -434,13 +449,12 @@ char *itoa(int value, char *str, int base);
 #ifdef CONFIG_LIBC_WCHAR
 /**
  * @cond
- * @internal
  */
+int mblen(FAR const char *s, size_t n);
 int mbtowc(FAR wchar_t *pwc, FAR const char *s, size_t n);
-/**
- * @internal
- */
+size_t    mbstowcs(FAR wchar_t *dst, FAR const char *src, size_t len);
 int wctomb(FAR char *s, wchar_t wchar);
+size_t    wcstombs(FAR char *dst, FAR const wchar_t *src, size_t len);
 /**
  * @endcond
  */
@@ -500,6 +514,13 @@ FAR void *zalloc(size_t);
  * @since TizenRT v1.0
  */
 FAR void *calloc(size_t, size_t);
+
+/**
+ * @ingroup STDLIB_LIBC
+ * @brief a aligned memory allocator 
+ * @details @b #include <stdlib.h> \n
+ */
+FAR void *aligned_alloc(size_t, size_t);
 
 /* Misc */
 /**

@@ -81,8 +81,11 @@
  *
  * Reference: Opengroup.org
  */
-
-#define offsetof(a, b) ((size_t)(&(((a *)(0))->b)))
+#if defined(__GNUC__) || defined(__clang__)
+    #define offsetof(type, member) __builtin_offsetof(type, member)
+#else
+    #define offsetof(type, member) ((size_t)&(((type *)0)->member))
+#endif
 
 /****************************************************************************
  * Type Definitions
@@ -113,5 +116,21 @@
  *
  * Reference: Opengroup.org
  */
+
+ typedef struct
+{
+#if defined(CONFIG_HAVE_LONG_LONG)
+  long long max_align_i;
+#else
+  long max_align_i;
+#endif
+#if defined(CONFIG_HAVE_LONG_DOUBLE)
+  long double max_align_f;
+#elif defined(CONFIG_HAVE_DOUBLE)
+  double max_align_f;
+#elif defined(CONFIG_HAVE_FLOAT)
+  float max_align_f;
+#endif
+} max_align_t;
 
 #endif							/* __INCLUDE_STDDEF_H */

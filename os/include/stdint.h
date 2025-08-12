@@ -64,6 +64,7 @@
 #else
 #include <tinyara/compiler.h>
 #include <arch/types.h>
+#include <arch/inttypes.h>
 #include <limits.h>
 
 /****************************************************************************

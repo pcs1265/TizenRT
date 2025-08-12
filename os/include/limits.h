@@ -85,6 +85,13 @@
 #endif
 #endif
 
+/* Maximum length of any multibyte character in any locale.
+ * We define this value here since the gcc header does not define
+ * the correct value.
+ */
+
+#define MB_LEN_MAX            4
+
 /* Configurable limits required by POSIX ****************************************
  *
  * Required for all implementations:

@@ -126,6 +126,7 @@
 #define lib_calloc(p, s)   calloc(p, s)
 #define lib_zalloc(s)      zalloc(s)
 #define lib_realloc(p, s)  realloc(p, s)
+#define lib_memalign(p,s)   memalign(p,s)
 #define lib_free(p)        free(p)
 
 /* User-accessible allocations */
@@ -133,6 +134,7 @@
 #define lib_umalloc(s)     malloc(s)
 #define lib_uzalloc(s)     zalloc(s)
 #define lib_urealloc(p, s) realloc(p, s)
+#define lib_umemalign(p,s)   memalign(p,s)
 #define lib_ufree(p)       free(p)
 
 #endif
