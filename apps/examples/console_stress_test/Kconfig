@@ -1,0 +1,10 @@
+#
+# For a description of the syntax of this configuration file,
+# see kconfig-language at https://www.kernel.org/doc/Documentation/kbuild/kconfig-language.txt
+#
+
+config EXAMPLES_CONSOLE_STRESS_TEST
+	bool "Console Output Stress Test"
+	default n
+	---help---
+		Enable the Console Output Stress Test
