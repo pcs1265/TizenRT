@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <string.h>
 #ifdef CONFIG_BINARY_MANAGER
 #include <binary_manager/binary_manager.h>
 #endif
@@ -32,6 +33,282 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+
+/*
+ * Test Secure Storage APIs - Data A/B Toggle
+ */
+#include <tinyara/seclink.h>
+#include <tinyara/security_hal.h>
+
+#define TEST_SS_SLOT_INDEX      5
+#define TEST_SS_MAX_DATA_SIZE   8192
+#define TEST_SS_DATA_SIZE       2048
+
+/* Test data A and B */
+static const unsigned char DATA_A[2048] = { [ 0 ... 2047 ] = 0x55};
+static const unsigned char DATA_B[2048] = { [ 0 ... 2047 ] = 0xAA};
+
+static bool g_use_data_a = true;  // true: write A next, false: write B next
+static int g_write_count = 0;
+
+void PrintBuffer(const char *header, unsigned char* buffer, uint32_t len)
+{
+	register uint32_t i = 0;
+	printf("%s : %d\n", header, len);
+	for (i = 0; i < len; i++) {
+		if (i != 0 && i % 16 == 0) {
+			printf("\n");
+		}
+		printf(" %02X", buffer[i]);
+	}
+	printf("\n");
+}
+
+/* Helper function: Initialize seclink */
+static int ss_init(sl_ctx *sl_hnd)
+{
+	printf("SECLINK Initialize ...\n");
+	if (SECLINK_OK != sl_init(sl_hnd)) {
+		printf("   ssFail! sl_init\n");
+		return -1;
+	}
+	printf("   OK\n\n");
+	return 0;
+}
+
+/* Helper function: Deinitialize seclink */
+static void ss_deinit(sl_ctx sl_hnd)
+{
+	printf("SECLINK Deinitialize ...\n");
+	sl_deinit(sl_hnd);
+	printf("   OK\n\n");
+}
+
+/* Helper function: Allocate output buffer */
+static int ss_alloc_buffer(hal_data *output)
+{
+	output->data = (unsigned char *)malloc(TEST_SS_MAX_DATA_SIZE);
+	if (output->data == NULL) {
+		printf("   ssFail! malloc\n");
+		return -1;
+	}
+	output->data_len = TEST_SS_MAX_DATA_SIZE;
+	memset(output->data, 0, TEST_SS_MAX_DATA_SIZE);
+	return 0;
+}
+
+/* Helper function: Free output buffer */
+static void ss_free_buffer(hal_data *output)
+{
+	if (output->data != NULL) {
+		free(output->data);
+		output->data = NULL;
+		output->data_len = 0;
+	}
+}
+
+/* Helper function: Write data to slot */
+static int ss_write(sl_ctx sl_hnd, const unsigned char *data, uint32_t data_len)
+{
+	hal_data input = {(unsigned char *)data, data_len};
+	int ret = sl_write_storage(sl_hnd, TEST_SS_SLOT_INDEX, &input);
+	if (ret == SECLINK_OK) {
+		printf("   Successfully wrote %d bytes\n", data_len);
+	} else {
+		printf("   ssFail! sl_write_storage returned %d\n", ret);
+	}
+	return ret;
+}
+
+/* Helper function: Read data from slot */
+static int ss_read(sl_ctx sl_hnd, hal_data *output)
+{
+	int ret = sl_read_storage(sl_hnd, TEST_SS_SLOT_INDEX, output);
+	if (ret == SECLINK_OK) {
+		printf("   Read %d bytes\n", output->data_len);
+	} else if (ret == SECLINK_EMPTY_SLOT) {
+		printf("   Slot is empty\n");
+	} else {
+		printf("   ssFail! sl_read_storage returned %d\n", ret);
+	}
+	return ret;
+}
+
+/* Helper function: Delete slot */
+static int ss_delete(sl_ctx sl_hnd)
+{
+	int ret = sl_delete_storage(sl_hnd, TEST_SS_SLOT_INDEX);
+	if (ret == SECLINK_OK) {
+		printf("   Successfully deleted slot %d\n", TEST_SS_SLOT_INDEX);
+	} else {
+		printf("   ssFail! sl_delete_storage returned %d\n", ret);
+	}
+	return ret;
+}
+
+/* Helper function: Check if data matches A or B */
+static int ss_check_data_type(const unsigned char *data, uint32_t len)
+{
+	if (len != TEST_SS_DATA_SIZE) {
+		return -1;  // Unknown
+	}
+	if (memcmp(data, DATA_A, len) == 0) {
+		return 0;  // Data A
+	}
+	if (memcmp(data, DATA_B, len) == 0) {
+		return 1;  // Data B
+	}
+	return -1;  // Unknown
+}
+
+/* Check initial state and determine next data to write */
+static void ss_check_initial_state(void)
+{
+	sl_ctx sl_hnd;
+	hal_data output = {NULL, 0};
+	int data_type;
+
+	printf("=== Initial State Check ===\n\n");
+
+	/* Initialize seclink */
+	if (ss_init(&sl_hnd) < 0) {
+		return;
+	}
+
+	printf("Read slot %d (initial state)...\n", TEST_SS_SLOT_INDEX);
+	if (ss_alloc_buffer(&output) < 0) {
+		ss_deinit(sl_hnd);
+		return;
+	}
+
+	if (ss_read(sl_hnd, &output) == SECLINK_OK) {
+		data_type = ss_check_data_type(output.data, output.data_len);
+		if (data_type == 0) {
+			printf("   Current data is: DATA_A\n");
+			g_use_data_a = false;  // Next write should be B
+		} else if (data_type == 1) {
+			printf("   Current data is: DATA_B\n");
+			g_use_data_a = true;   // Next write should be A
+		} else {
+			printf("   ssFail! Current data is: UNKNOWN\n");
+			PrintBuffer("   Read data", output.data, output.data_len);
+			g_use_data_a = true;
+		}
+	} else {
+		g_use_data_a = true;  // Start with Data A
+	}
+
+	printf("\n   Next write will be: DATA_%c\n\n", g_use_data_a ? 'A' : 'B');
+	ss_free_buffer(&output);
+	ss_deinit(sl_hnd);
+}
+
+/* Run single test iteration: write -> read -> verify -> delete -> verify deletion */
+static void ss_run_test_iteration(void)
+{
+	sl_ctx sl_hnd;
+	hal_data output = {NULL, 0};
+	const unsigned char *write_data = g_use_data_a ? DATA_A : DATA_B;
+	int ret;
+
+	printf("=== Write Test #%d (DATA_%c) ===\n\n", g_write_count, g_use_data_a ? 'A' : 'B');
+
+	/* Initialize seclink */
+	if (ss_init(&sl_hnd) < 0) {
+		return;
+	}
+
+	/* Write data */
+	printf("Write DATA_%c to slot %d...\n", g_use_data_a ? 'A' : 'B', TEST_SS_SLOT_INDEX);
+	if (ss_write(sl_hnd, write_data, TEST_SS_DATA_SIZE) != SECLINK_OK) {
+		ss_deinit(sl_hnd);
+		return;
+	}
+	printf("   OK\n\n");
+
+	/* Read back and verify */
+	printf("Read back from slot %d...\n", TEST_SS_SLOT_INDEX);
+	if (ss_alloc_buffer(&output) < 0) {
+		ss_deinit(sl_hnd);
+		return;
+	}
+
+	ret = ss_read(sl_hnd, &output);
+	if (ret == SECLINK_OK) {
+		if (output.data_len == TEST_SS_DATA_SIZE && 
+		    memcmp(output.data, write_data, TEST_SS_DATA_SIZE) == 0) {
+			printf("   Data verification: OK (DATA_%c)\n", g_use_data_a ? 'A' : 'B');
+		} else {
+			printf("   ssFail! Data verification: MISMATCH!\n");
+			PrintBuffer("   Read data", output.data, output.data_len);
+			
+			/* Read again to verify */
+			printf("\n   Re-reading slot %d...\n", TEST_SS_SLOT_INDEX);
+			ss_free_buffer(&output);
+			if (ss_alloc_buffer(&output) == 0) {
+				ret = ss_read(sl_hnd, &output);
+				if (ret == SECLINK_OK) {
+					if (output.data_len == TEST_SS_DATA_SIZE && 
+					    memcmp(output.data, write_data, TEST_SS_DATA_SIZE) == 0) {
+						printf("   Re-read verification: OK (DATA_%c)\n", g_use_data_a ? 'A' : 'B');
+					} else {
+						printf("   ssFail! Re-read verification: MISMATCH again!\n");
+						PrintBuffer("   Re-read data", output.data, output.data_len);
+					}
+				} else {
+					printf("   ssFail! Re-read failed\n");
+				}
+			}
+		}
+	}
+	ss_free_buffer(&output);
+	printf("\n");
+
+	/* Delete data */
+	printf("Delete slot %d...\n", TEST_SS_SLOT_INDEX);
+	ss_delete(sl_hnd);
+	printf("   OK\n\n");
+
+	/* Verify deletion */
+	printf("Read slot %d (verify deletion)...\n", TEST_SS_SLOT_INDEX);
+	if (ss_alloc_buffer(&output) < 0) {
+		ss_deinit(sl_hnd);
+		return;
+	}
+	ret = ss_read(sl_hnd, &output);
+	if (ret == SECLINK_EMPTY_SLOT) {
+		printf("   Slot %d is empty - deletion verified\n", TEST_SS_SLOT_INDEX);
+	} else if (ret == SECLINK_OK) {
+		printf("   ssFail! Data still exists in slot %d (unexpected)\n", TEST_SS_SLOT_INDEX);
+	}
+	ss_free_buffer(&output);
+	printf("   OK\n\n");
+
+	/* Toggle for next write */
+	g_use_data_a = !g_use_data_a;
+	g_write_count++;
+
+	ss_deinit(sl_hnd);
+}
+
+void
+test_securestorage(void)
+{
+	printf("\n========================================\n");
+	printf("  Secure Storage Test\n");
+	printf("========================================\n\n");
+
+	/* Check initial state */
+	ss_check_initial_state();
+
+	/* Run test iterations */
+	for (;;) {
+		ss_run_test_iteration();
+	}
+}
+
+
 static void display_test_scenario(void)
 {
 	printf("\nSelect Test Scenario.\n");
@@ -139,6 +416,8 @@ int wifiapp_main(int argc, char **argv)
 	binary_update_aging_test();
 #endif
 #endif
+	
+	task_create("secure_storage_test", 100, 4096, test_securestorage, NULL);
 
 	while (1) {
 		sleep(300);
