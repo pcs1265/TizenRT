@@ -124,7 +124,7 @@ write_bl1() {
 
     if [ -f "${bin_path}" ]; then
         echo "Writing ${bin_name} to pflash offset 0..."
-        if ! dd_output=$(dd if="${bin_path}" of="${PFLASH_IMAGE}" seek=0 bs=1 conv=notrunc 2>&1); then
+        if ! dd_output=$(dd if="${bin_path}" of="${PFLASH_IMAGE}" seek=0 bs=1024 conv=notrunc 2>&1); then
             echo "Error: Failed to write ${bin_name}."
             echo "---${dd_output}"
             exit 1
@@ -182,7 +182,8 @@ write_partition() {
 
     if [ -f "${bin_path}" ] && [ -n "${offset_to_use}" ]; then
         echo "Writing ${bin_name} to qemu_blk.bin offset ${offset_to_use} (${partition_name}[${partition_index}])... "
-        if ! dd_output=$(dd if="${bin_path}" of="${BLK_IMAGE}" seek="${offset_to_use}" bs=1 conv=notrunc 2>&1); then
+        local seek_blocks=$((offset_to_use / 1024))
+        if ! dd_output=$(dd if="${bin_path}" of="${BLK_IMAGE}" seek="${seek_blocks}" bs=1024 conv=notrunc 2>&1); then
             echo "Error: Failed to write ${bin_name}."
             echo "---${dd_output}"
             exit 1
