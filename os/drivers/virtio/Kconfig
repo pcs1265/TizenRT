@@ -1,0 +1,31 @@
+# QEMU Virtio support
+#
+
+config QEMU_VIRT_VIRTIO
+	bool "Virtio support for QEMU Virt machine"
+	default y
+	help
+	  Enable Virtio support for QEMU Virt machine.
+	  This enables the generic virtio-mmio framework and
+	  device drivers for virtio devices.
+
+if QEMU_VIRT_VIRTIO
+
+config QEMU_VIRT_VIRTIO_BLK
+	bool "Virtio block device support"
+	default y
+	help
+	  Enable Virtio block device support.
+	  This enables the virtio-blk driver for block devices
+	  connected via virtio-mmio transport.
+
+config QEMU_VIRT_VIRTIO_BLK_MTD
+	bool "Virtio block to MTD translation layer"
+	default n
+	depends on QEMU_VIRT_VIRTIO_BLK && FLASH_PARTITION
+	help
+	  Enable an MTD translation layer backed by the QEMU virtio-blk
+	  device. This lets the existing flash partition code create
+	  /dev/mtdblockX devices from qemu_blk.bin instead of pflash.
+
+endif # QEMU_VIRT_VIRTIO
