@@ -27,6 +27,10 @@ ifeq ($(CONFIG_QEMU_VIRT_VIRTIO_BLK),y)
   CSRCS += virtio-blk.c virtio-blk-driver.c
 endif
 
+ifeq ($(CONFIG_QEMU_VIRT_VIRTIO_NET),y)
+  CSRCS += virtio-net.c
+endif
+
 DEPPATH += --dep-path virtio
 VPATH += :virtio
 

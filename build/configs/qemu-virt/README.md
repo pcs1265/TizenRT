@@ -18,6 +18,7 @@ This directory contains the following pre-defined configurations for the `qemu-v
 | `dramboot_flat` | Flat (`CONFIG_BUILD_FLAT=y`) | SMP (4 cores) | - | Simple build model where OS and applications are linked into a single binary |
 | `dramboot_elf` | Protected (`CONFIG_BUILD_PROTECTED=y`) | Single Core | ELF (`CONFIG_ELF=y`) | **Recommended for Beginners** - Kernel and loadable binaries are prepared for virtio-blk-backed dramboot |
 | `dramboot_elf_smp` | Protected (`CONFIG_BUILD_PROTECTED=y`) | SMP (4 cores) | ELF (`CONFIG_ELF=y`) | SMP-enabled protected build |
+| `dramboot_elf_net` | Protected (`CONFIG_BUILD_PROTECTED=y`) | Single Core | ELF (`CONFIG_ELF=y`) | Protected build with virtio-net enabled |
 
 
 ## Quick Start Guide
@@ -171,6 +172,4 @@ The VS Code debugger should now attach to the QEMU session, and you can start de
    - In the current SMP configuration, TizenRT uses WFE in the idle loop on all CPUs except CPU 0.
      - QEMU emulates WFE as a busy wait, which causes host CPU usage to ramp up to 100%.
      - This issue can be resolved by supporting a custom idle loop in SMP.
-   - No network support yet.
-     - The initial board support only enables virtio-blk.
    - BL1 still loads from pflash, while kernel and protected binaries are stored in the virtio-blk image.

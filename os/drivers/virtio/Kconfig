@@ -28,4 +28,32 @@ config QEMU_VIRT_VIRTIO_BLK_MTD
 	  device. This lets the existing flash partition code create
 	  /dev/mtdblockX devices from qemu_blk.bin instead of pflash.
 
+config QEMU_VIRT_VIRTIO_NET
+	bool "Virtio network device support"
+	default y if NET_NETMGR
+	depends on NET && NET_NETMGR && !NET_NETMGR_ZEROCOPY
+	select SCHED_HPWORK
+	help
+	  Enable virtio-net support for the QEMU virt machine. The driver
+	  registers an Ethernet NIC with netmgr and uses QEMU's virtio-mmio
+	  transport.
+
+config QEMU_VIRT_VIRTIO_NET_DEVICE_NUM
+	int "Virtio network MMIO device number"
+	default 1 if QEMU_VIRT_VIRTIO_BLK
+	default 0
+	depends on QEMU_VIRT_VIRTIO_NET
+	help
+	  The virtio-mmio bus slot used by virtio-net. If virtio-blk is also
+	  enabled, slot 0 is usually occupied by the block device, so the
+	  network device defaults to slot 1.
+
+config QEMU_VIRT_VIRTIO_NET_RX_BUFS
+	int "Virtio network RX buffers"
+	default 16
+	range 2 64
+	depends on QEMU_VIRT_VIRTIO_NET
+	help
+	  Number of receive buffers posted to the virtio-net RX queue.
+
 endif # QEMU_VIRT_VIRTIO

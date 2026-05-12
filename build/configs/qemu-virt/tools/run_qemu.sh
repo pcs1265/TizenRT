@@ -40,6 +40,18 @@ if [ "${QEMU_VIRT_VIRTIO_BLK}" == "y" ]; then
     echo "VIRTIO_BLK enabled"
     QEMU_VIRT_VIRTIO_BLK_OPTION="-drive file=${BLK_IMAGE},format=raw,if=none,id=blk0 -device virtio-blk-device,drive=blk0,bus=virtio-mmio-bus.0"
 fi
+
+QEMU_VIRT_VIRTIO_NET=$(get_config_value "CONFIG_QEMU_VIRT_VIRTIO_NET")
+if [ "${QEMU_VIRT_VIRTIO_NET}" == "y" ]; then
+    QEMU_VIRT_VIRTIO_NET_DEVICE_NUM=$(get_config_value "CONFIG_QEMU_VIRT_VIRTIO_NET_DEVICE_NUM")
+    if [ -z "${QEMU_VIRT_VIRTIO_NET_DEVICE_NUM}" ]; then
+        QEMU_VIRT_VIRTIO_NET_DEVICE_NUM=0
+    fi
+    echo "VIRTIO_NET enabled on virtio-mmio-bus.${QEMU_VIRT_VIRTIO_NET_DEVICE_NUM}"
+    QEMU_NET_OPTION="-netdev user,id=net0,hostfwd=tcp::10023-:23 -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.${QEMU_VIRT_VIRTIO_NET_DEVICE_NUM}"
+else
+    QEMU_NET_OPTION="-net none"
+fi
 # cp ./build/output/bin/tinyara.bin ./tinyara.bin
 
 # -serial tcp::4555,server,nowait \
@@ -53,7 +65,7 @@ qemu-system-arm \
 -m 64M \
 -cpu cortex-a15 \
 -nographic \
--net none \
+${QEMU_NET_OPTION} \
 -chardev stdio,id=con,mux=on \
 -serial chardev:con \
 -mon chardev=con,mode=readline \
