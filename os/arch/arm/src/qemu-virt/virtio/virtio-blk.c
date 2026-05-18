@@ -342,8 +342,6 @@ void virtio_blk_deinit(virtio_blk_dev_t *dev)
 int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t nsectors)
 {
 	struct virtq_desc desc[3];
-	struct virtio_blk_req_hdr_s hdr;
-	struct virtio_blk_req_footer_s footer;
 	uint32_t blk_size;
 	int ret;
 
@@ -353,12 +351,18 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 
 	blk_size = dev->config.blk_size ? dev->config.blk_size : 512;
 
-	hdr.type = VIRTIO_BLK_T_IN;
-	hdr.reserved = 0;
-	hdr.sector = sector;
+	/* Use DMA-safe device buffers instead of stack-allocated ones */
+	dev->req_hdr.type = VIRTIO_BLK_T_IN;
+	dev->req_hdr.reserved = 0;
+	dev->req_hdr.sector = sector;
+	dev->req_footer.status = 0xff; /* Set to invalid to detect completion */
+	dev->req_ndesc = 3;
 
-	desc[0].addr  = (uint64_t)(uintptr_t)&hdr;
-	desc[0].len   = sizeof(hdr);
+	/* Memory barrier to ensure DMA buffers are ready */
+	__sync_synchronize();
+
+	desc[0].addr  = (uint64_t)(uintptr_t)&dev->req_hdr;
+	desc[0].len   = sizeof(dev->req_hdr);
 	desc[0].flags = 0;
 	desc[0].next  = 1;
 
@@ -367,8 +371,8 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 	desc[1].flags = VIRTQ_DESC_F_WRITE;
 	desc[1].next  = 2;
 
-	desc[2].addr  = (uint64_t)(uintptr_t)&footer;
-	desc[2].len   = sizeof(footer);
+	desc[2].addr  = (uint64_t)(uintptr_t)&dev->req_footer;
+	desc[2].len   = sizeof(dev->req_footer);
 	desc[2].flags = VIRTQ_DESC_F_WRITE;
 	desc[2].next  = 0;
 
@@ -391,11 +395,14 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 		return -EIO;
 	}
 
+	/* Memory barrier to ensure we read the completed DMA buffers */
+	__sync_synchronize();
+
 	if (virtq_get_buffer(&dev->vq, NULL) == -EAGAIN) {
 		return -EIO;
 	}
 
-	if (footer.status != VIRTIO_BLK_S_OK) {
+	if (dev->req_footer.status != VIRTIO_BLK_S_OK) {
 		return -EIO;
 	}
 
@@ -413,8 +420,6 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer, size_t nsectors)
 {
 	struct virtq_desc desc[3];
-	struct virtio_blk_req_hdr_s hdr;
-	struct virtio_blk_req_footer_s footer;
 	uint32_t blk_size;
 	int ret;
 
@@ -424,12 +429,18 @@ int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer,
 
 	blk_size = dev->config.blk_size ? dev->config.blk_size : 512;
 
-	hdr.type = VIRTIO_BLK_T_OUT;
-	hdr.reserved = 0;
-	hdr.sector = sector;
+	/* Use DMA-safe device buffers instead of stack-allocated ones */
+	dev->req_hdr.type = VIRTIO_BLK_T_OUT;
+	dev->req_hdr.reserved = 0;
+	dev->req_hdr.sector = sector;
+	dev->req_footer.status = 0xff; /* Set to invalid to detect completion */
+	dev->req_ndesc = 3;
 
-	desc[0].addr  = (uint64_t)(uintptr_t)&hdr;
-	desc[0].len   = sizeof(hdr);
+	/* Memory barrier to ensure DMA buffers are ready */
+	__sync_synchronize();
+
+	desc[0].addr  = (uint64_t)(uintptr_t)&dev->req_hdr;
+	desc[0].len   = sizeof(dev->req_hdr);
 	desc[0].flags = 0;
 	desc[0].next  = 1;
 
@@ -438,8 +449,8 @@ int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer,
 	desc[1].flags = 0;
 	desc[1].next  = 2;
 
-	desc[2].addr  = (uint64_t)(uintptr_t)&footer;
-	desc[2].len   = sizeof(footer);
+	desc[2].addr  = (uint64_t)(uintptr_t)&dev->req_footer;
+	desc[2].len   = sizeof(dev->req_footer);
 	desc[2].flags = VIRTQ_DESC_F_WRITE;
 	desc[2].next  = 0;
 
@@ -462,11 +473,14 @@ int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer,
 		return -EIO;
 	}
 
+	/* Memory barrier to ensure we read the completed DMA buffers */
+	__sync_synchronize();
+
 	if (virtq_get_buffer(&dev->vq, NULL) == -EAGAIN) {
 		return -EIO;
 	}
 
-	if (footer.status != VIRTIO_BLK_S_OK) {
+	if (dev->req_footer.status != VIRTIO_BLK_S_OK) {
 		return -EIO;
 	}
 
