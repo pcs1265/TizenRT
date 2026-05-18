@@ -26,6 +26,7 @@
 #include <tinyara/fs/ioctl.h>
 #include <tinyara/fs/mtd.h>
 #endif
+#include <tinyara/semaphore.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
@@ -47,6 +48,7 @@
 
 static virtio_blk_dev_t g_virtio_blk_dev;
 static bool g_virtio_blk_ready;
+static sem_t g_virtio_blk_init_sem;
 
 #ifdef CONFIG_QEMU_VIRT_VIRTIO_BLK_MTD
 static struct mtd_dev_s g_virtio_blk_mtd;
@@ -102,13 +104,33 @@ static int virtio_blk_ensure_initialized(uint32_t device_num)
 {
 	int ret;
 
+	/* Fast path: already initialized */
+
 	if (g_virtio_blk_ready) {
+		return OK;
+	}
+
+	/* Serialize initialization: use a binary semaphore as a mutex.
+	 * The semaphore is initialized to 1 (unlocked) on first use.
+	 * We use sem_wait/sem_post to ensure only one thread performs
+	 * initialization while others wait.
+	 */
+
+	sem_wait(&g_virtio_blk_init_sem);
+
+	/* Double-check after acquiring the lock (another thread may have
+	 * completed initialization while we waited).
+	 */
+
+	if (g_virtio_blk_ready) {
+		sem_post(&g_virtio_blk_init_sem);
 		return OK;
 	}
 
 	ret = virtio_blk_init(&g_virtio_blk_dev, device_num);
 	if (ret != OK) {
 		lldbg("ERROR: virtio_blk_init failed: %d\n", ret);
+		sem_post(&g_virtio_blk_init_sem);
 		return ret;
 	}
 
@@ -118,6 +140,7 @@ static int virtio_blk_ensure_initialized(uint32_t device_num)
 	memset(g_virtio_blk_erase_sector, 0xff, sizeof(g_virtio_blk_erase_sector));
 #endif
 
+	sem_post(&g_virtio_blk_init_sem);
 	return OK;
 }
 
@@ -364,6 +387,10 @@ static int vblk_mtd_ioctl(FAR struct mtd_dev_s *dev, int cmd,
 int virtio_blk_driver_initialize(uint32_t device_num)
 {
 	int ret;
+
+	/* Initialize the init semaphore on first call (binary semaphore, value=1) */
+
+	sem_init(&g_virtio_blk_init_sem, 0, 1);
 
 	ret = virtio_blk_ensure_initialized(device_num);
 	if (ret != OK) {

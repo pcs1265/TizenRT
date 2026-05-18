@@ -23,6 +23,7 @@
 #include <tinyara/config.h>
 #include <tinyara/arch.h>
 #include <tinyara/kmalloc.h>
+#include <tinyara/spinlock.h>
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
@@ -50,11 +51,13 @@ static int virtq_alloc_memory(virtq_t *vq)
 	uint32_t page_size = 4096;	/* Assuming 4KB page size */
 
 	/* Calculate memory requirements */
+
 	desc_size = vq->num * sizeof(struct virtq_desc);
 	avail_size = sizeof(uint16_t) * (3 + vq->num);
 	used_size = sizeof(uint16_t) * 3 + sizeof(struct virtq_used_elem) * vq->num;
 
 	/* Align to page size */
+
 	desc_size = (desc_size + page_size - 1) & ~(page_size - 1);
 	avail_size = (avail_size + page_size - 1) & ~(page_size - 1);
 	used_size = (used_size + page_size - 1) & ~(page_size - 1);
@@ -63,6 +66,7 @@ static int virtq_alloc_memory(virtq_t *vq)
 	 * v1 MMIO queue setup (QUEUE_PFN) requires the descriptor table to
 	 * sit at a page-aligned physical address.
 	 */
+
 	vq->raw_mem = kmm_malloc(desc_size + avail_size + used_size + (page_size - 1));
 	if (!vq->raw_mem) {
 		return -ENOMEM;
@@ -70,11 +74,13 @@ static int virtq_alloc_memory(virtq_t *vq)
 	memory = (uint8_t *)(((uintptr_t)vq->raw_mem + (page_size - 1)) & ~((uintptr_t)(page_size - 1)));
 
 	/* Set up pointers */
+
 	vq->desc = (struct virtq_desc *)memory;
 	vq->avail = (struct virtq_avail *)(memory + desc_size);
 	vq->used = (struct virtq_used *)(memory + desc_size + avail_size);
 
 	/* Initialize memory */
+
 	memset(vq->desc, 0, desc_size);
 	memset(vq->avail, 0, avail_size);
 	memset(vq->used, 0, used_size);
@@ -100,19 +106,26 @@ int virtq_init(virtq_t *vq, uint16_t num)
 	int ret;
 
 	/* Validate input parameters */
+
 	if (!vq || num == 0 || (num & (num - 1)) != 0) {
 		/* num must be a power of 2 */
 		return -EINVAL;
 	}
 
 	/* Initialize virtqueue structure */
+
 	memset(vq, 0, sizeof(virtq_t));
 	vq->num = num;
 	vq->num_mask = num - 1;
 	vq->num_free = num;
 	vq->free_head = 0;
 
+	/* Initialize spinlock to unlocked state */
+
+	spin_initialize(&vq->lock, SP_UNLOCKED);
+
 	/* Allocate memory for queue */
+
 	ret = virtq_alloc_memory(vq);
 	if (ret != OK) {
 		return ret;
@@ -125,13 +138,19 @@ int virtq_init(virtq_t *vq, uint16_t num)
 	}
 
 	/* Allocate array to track descriptor chain lengths */
+
 	vq->desc_chain_len = kmm_zalloc(num * sizeof(uint16_t));
 	if (vq->desc_chain_len == NULL) {
 		virtq_deinit(vq);
 		return -ENOMEM;
 	}
 
-	/* Initialize the free descriptor list by chaining all descriptors */
+	/* Initialize the free descriptor list by chaining all descriptors.
+	 * The free list is a linked list using desc[i].next pointers.
+	 * After reclamation, this list may become non-contiguous, so
+	 * allocation must walk the chain via next pointers.
+	 */
+
 	for (i = 0; i < num - 1; i++) {
 		vq->desc[i].flags = VIRTQ_DESC_F_NEXT;
 		vq->desc[i].next = i + 1;
@@ -173,10 +192,12 @@ void virtq_deinit(virtq_t *vq)
 }
 
 /****************************************************************************
- * Name: virtq_add_buffer
+ * Name: virtq_add_buffer_cookie
  *
  * Description:
- *   Add a chained descriptor buffer to the virtqueue
+ *   Add a chained descriptor buffer to the virtqueue.
+ *   Walks the free chain via next pointers instead of assuming contiguous
+ *   layout, which is essential after descriptor reclamation creates gaps.
  *
  ****************************************************************************/
 
@@ -188,13 +209,25 @@ int virtq_add_buffer_cookie(virtq_t *vq, struct virtq_desc *descs,
 	uint16_t slot;
 	uint16_t avail_ring_idx;
 	uint16_t next_free;
+	uint16_t chain_slots[VIRTQ_DESC_MAX];
+	irqstate_t flags;
 
 	if (!vq || !vq->ready || !descs || ndesc == 0) {
 		return -EINVAL;
 	}
 
+	if (ndesc > VIRTQ_DESC_MAX) {
+		return -EINVAL;
+	}
+
+	/* Acquire spinlock with interrupt disable to prevent ISR concurrency */
+
+	flags = spin_lock_irqsave(&vq->lock);
+
 	/* Check if we have enough free descriptors */
+
 	if (vq->num_free < ndesc) {
+		spin_unlock_irqrestore(&vq->lock, flags);
 		return -ENOSPC;
 	}
 
@@ -202,37 +235,61 @@ int virtq_add_buffer_cookie(virtq_t *vq, struct virtq_desc *descs,
 	vq->cookie[head] = cookie;
 	vq->desc_chain_len[head] = ndesc;  /* Track chain length for reclamation */
 
-	/* Calculate next free_head after this allocation */
-	next_free = (head + ndesc) & vq->num_mask;
+	/* Step 1: Walk the free chain via next pointers to record slot order.
+	 * We cannot assume contiguous layout because reclamation creates gaps
+	 * in the free list (e.g., 0->1->2->5->6->7 after reclaiming 0,1,2).
+	 * We must save the next-pointers BEFORE overwriting any descriptors.
+	 */
 
-	/* Fill descriptor table slots with the chained descriptors */
+	slot = head;
+	for (i = 0; i < ndesc; i++) {
+		chain_slots[i] = slot;
+		if (i < ndesc - 1) {
+			slot = vq->desc[slot].next;
+		}
+	}
+
+	/* The next free descriptor after the allocated chain is the next
+	 * pointer of the last descriptor in the chain (still unmodified).
+	 */
+
+	next_free = vq->desc[chain_slots[ndesc - 1]].next;
+
+	/* Step 2: Fill descriptor table slots with the caller's data and
+	 * set up the chain links using the recorded slot order.
+	 */
 
 	for (i = 0; i < ndesc; i++) {
-		slot = (head + i) & vq->num_mask;
+		slot = chain_slots[i];
 		vq->desc[slot].addr  = descs[i].addr;
 		vq->desc[slot].len   = descs[i].len;
 		vq->desc[slot].flags = descs[i].flags;
 
 		if (i < ndesc - 1) {
 			vq->desc[slot].flags |= VIRTQ_DESC_F_NEXT;
-			vq->desc[slot].next   = (head + i + 1) & vq->num_mask;
+			vq->desc[slot].next   = chain_slots[i + 1];
 		} else {
 			vq->desc[slot].flags &= ~VIRTQ_DESC_F_NEXT;
-			vq->desc[slot].next   = next_free;  /* Point to next free descriptor */
+			vq->desc[slot].next   = 0;
 		}
 	}
 
-	/* Add head descriptor index to the available ring */
+	/* Step 3: Add head descriptor index to the available ring */
 
 	avail_ring_idx = vq->avail->idx & vq->num_mask;
 	vq->avail->ring[avail_ring_idx] = head;
 
-	__sync_synchronize();	/* Ensure descriptors are visible before idx update */
+	__sync_synchronize();	/* Ensure descriptors and avail ring are visible before idx update */
 	vq->avail->idx++;
 
-	/* Update free list */
+	/* Step 4: Update free list: advance free_head to the first free
+	 * descriptor after the allocated chain.
+	 */
+
 	vq->free_head = next_free;
 	vq->num_free -= ndesc;
+
+	spin_unlock_irqrestore(&vq->lock, flags);
 
 	return OK;
 }
@@ -299,56 +356,78 @@ int virtq_get_buffer(virtq_t *vq, uint32_t *len)
 	uint16_t head;
 	uint16_t chain_len;
 	uint16_t i;
+	uint16_t last_desc;
+	irqstate_t flags;
 
 	if (!vq || !vq->ready) {
 		return -EINVAL;
 	}
 
+	/* Acquire spinlock with interrupt disable */
+
+	flags = spin_lock_irqsave(&vq->lock);
+
 	/* Memory barrier to ensure we see updated used ring */
+
 	__sync_synchronize();
 
 	/* Check if there are used buffers */
+
 	if (vq->last_used_idx == vq->used->idx) {
+		spin_unlock_irqrestore(&vq->lock, flags);
 		return -EAGAIN;	/* No used buffers available */
 	}
 
 	/* Get the used index */
+
 	used_idx = vq->last_used_idx & vq->num_mask;
 	used = &vq->used->ring[used_idx];
 	head = (uint16_t)used->id;
 
 	/* Get the buffer length */
+
 	if (len) {
 		*len = used->len;
 	}
 
-	/* Reclaim the descriptor chain back to the free list */
+	/* Reclaim the descriptor chain back to the free list.
+	 * Walk the chain via next pointers to find the last descriptor,
+	 * then link it to the current free_head and set free_head to
+	 * the reclaimed chain head.
+	 */
+
 	chain_len = vq->desc_chain_len[head];
 	if (chain_len > 0 && head < vq->num) {
-		/* Find the last descriptor in the chain */
-		uint16_t last_desc = (head + chain_len - 1) & vq->num_mask;
-		
+		/* Walk the chain to find the last descriptor */
+
+		last_desc = head;
+		for (i = 0; i < chain_len - 1; i++) {
+			if (!(vq->desc[last_desc].flags & VIRTQ_DESC_F_NEXT)) {
+				break;	/* Safety: chain shorter than expected */
+			}
+			last_desc = vq->desc[last_desc].next;
+		}
+
 		/* Link the last descriptor's next to current free_head */
+
 		vq->desc[last_desc].flags = 0;
 		vq->desc[last_desc].next = vq->free_head;
-		
+
 		/* Update free_head to point to the reclaimed chain head */
+
 		vq->free_head = head;
 		vq->num_free += chain_len;
-		
+
 		/* Clear chain length tracking */
+
 		vq->desc_chain_len[head] = 0;
-		
-		/* Rebuild the free chain links */
-		for (i = 0; i < chain_len - 1; i++) {
-			uint16_t desc_idx = (head + i) & vq->num_mask;
-			vq->desc[desc_idx].flags = VIRTQ_DESC_F_NEXT;
-			vq->desc[desc_idx].next = (head + i + 1) & vq->num_mask;
-		}
 	}
 
 	/* Update last used index */
+
 	vq->last_used_idx++;
+
+	spin_unlock_irqrestore(&vq->lock, flags);
 
 	return OK;
 }
@@ -368,16 +447,24 @@ void *virtq_get_buffer_cookie(virtq_t *vq, uint32_t *len, uint16_t *idx)
 	uint16_t head;
 	uint16_t chain_len;
 	uint16_t i;
+	uint16_t last_desc;
 	void *cookie;
+	irqstate_t flags;
 
 	if (!vq || !vq->ready) {
 		return NULL;
 	}
 
+	/* Acquire spinlock with interrupt disable */
+
+	flags = spin_lock_irqsave(&vq->lock);
+
 	/* Memory barrier to ensure we see updated used ring */
+
 	__sync_synchronize();
 
 	if (vq->last_used_idx == vq->used->idx) {
+		spin_unlock_irqrestore(&vq->lock, flags);
 		return NULL;
 	}
 
@@ -398,32 +485,43 @@ void *virtq_get_buffer_cookie(virtq_t *vq, uint32_t *len, uint16_t *idx)
 		vq->cookie[head] = NULL;
 	}
 
-	/* Reclaim the descriptor chain back to the free list */
+	/* Reclaim the descriptor chain back to the free list.
+	 * Walk the chain via next pointers to find the last descriptor,
+	 * then link it to the current free_head and set free_head to
+	 * the reclaimed chain head.
+	 */
+
 	chain_len = vq->desc_chain_len[head];
 	if (chain_len > 0 && head < vq->num) {
-		/* Find the last descriptor in the chain */
-		uint16_t last_desc = (head + chain_len - 1) & vq->num_mask;
-		
+		/* Walk the chain to find the last descriptor */
+
+		last_desc = head;
+		for (i = 0; i < chain_len - 1; i++) {
+			if (!(vq->desc[last_desc].flags & VIRTQ_DESC_F_NEXT)) {
+				break;	/* Safety: chain shorter than expected */
+			}
+			last_desc = vq->desc[last_desc].next;
+		}
+
 		/* Link the last descriptor's next to current free_head */
+
 		vq->desc[last_desc].flags = 0;
 		vq->desc[last_desc].next = vq->free_head;
-		
+
 		/* Update free_head to point to the reclaimed chain head */
+
 		vq->free_head = head;
 		vq->num_free += chain_len;
-		
+
 		/* Clear chain length tracking */
+
 		vq->desc_chain_len[head] = 0;
-		
-		/* Rebuild the free chain links */
-		for (i = 0; i < chain_len - 1; i++) {
-			uint16_t desc_idx = (head + i) & vq->num_mask;
-			vq->desc[desc_idx].flags = VIRTQ_DESC_F_NEXT;
-			vq->desc[desc_idx].next = (head + i + 1) & vq->num_mask;
-		}
 	}
 
 	vq->last_used_idx++;
+
+	spin_unlock_irqrestore(&vq->lock, flags);
+
 	return cookie;
 }
 
