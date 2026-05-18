@@ -83,6 +83,20 @@
  * Public Types
  ****************************************************************************/
 
+/* Block request header */
+
+struct virtio_blk_req_hdr_s {
+	uint32_t type;			/* Request type */
+	uint32_t reserved;
+	uint64_t sector;		/* Sector number */
+} __attribute__((packed));
+
+/* Block request footer */
+
+struct virtio_blk_req_footer_s {
+	uint8_t status;			/* Status of request */
+} __attribute__((packed));
+
 /* Block device configuration structure */
 
 struct virtio_blk_config_s {
@@ -121,21 +135,12 @@ struct virtio_blk_dev_s {
 	int irq;			/* IRQ number for this device */
 	volatile bool completion_received; /* Completion flag for interrupt handling */
 	sem_t completion_sem;		/* Semaphore for completion synchronization */
+
+	/* DMA-safe request buffers (not on stack) */
+	struct virtio_blk_req_hdr_s req_hdr;	/* Request header for DMA */
+	struct virtio_blk_req_footer_s req_footer; /* Request footer for DMA */
+	uint16_t req_ndesc;		/* Number of descriptors in current request */
 };
-
-/* Block request header */
-
-struct virtio_blk_req_hdr_s {
-	uint32_t type;			/* Request type */
-	uint32_t reserved;
-	uint64_t sector;		/* Sector number */
-} __attribute__((packed));
-
-/* Block request footer */
-
-struct virtio_blk_req_footer_s {
-	uint8_t status;			/* Status of request */
-} __attribute__((packed));
 
 typedef struct virtio_blk_dev_s virtio_blk_dev_t;
 
