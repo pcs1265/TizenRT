@@ -90,11 +90,13 @@ struct virtqueue {
 	struct virtq_avail *avail;	/* Available ring */
 	struct virtq_used *used;	/* Used ring */
 	void **cookie;			/* Per descriptor-head caller cookie */
+	uint16_t *desc_chain_len;	/* Length of descriptor chain for each head */
 	void *raw_mem;			/* Original kmm_malloc pointer (pre-alignment) */
 	uint16_t num;			/* Number of descriptors */
 	uint16_t num_mask;		/* Number of descriptors mask */
 	uint16_t last_used_idx;		/* Last used index */
 	uint16_t free_head;		/* Next free descriptor slot */
+	uint16_t num_free;		/* Number of free descriptors */
 	bool ready;			/* Queue ready status */
 };
 
