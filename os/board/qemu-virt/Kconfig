@@ -1,0 +1,35 @@
+#
+# For a description of the syntax of this configuration file,
+# see kconfig-language at https://www.kernel.org/doc/Documentation/kbuild/kconfig-language.txt
+#
+
+if ARCH_BOARD_QEMU_VIRT
+
+config FLASH_VSTART
+    hex
+    default 0x00000000
+    help
+        A start virtual address of flash (in hex).
+        This is fixed value, so user doesn't need to change it.
+        Keep this value same as FLASH_START_ADDR.
+
+config FLASH_START_ADDR
+    hex
+    default 0x00000000
+    help
+        A start address of flash (in hex).
+        This is fixed value, so user doesn't need to change it.
+
+config FLASH_SIZE
+    int
+    default 67108864
+    help
+        A size of flash (in bytes).
+        This is fixed value, so user doesn't need to change it.
+endif #ARCH_BOARD_QEMU_VIRT
+
+config USERFS_MNTPT
+    string
+    default "/mnt" if AUTOMOUNT_USERFS
+    help
+        A mount point name of first flash partition.
