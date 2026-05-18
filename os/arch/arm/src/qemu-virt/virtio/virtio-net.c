@@ -217,6 +217,13 @@ static void virtio_net_rxfill(struct virtio_net_dev_s *dev)
 
 static bool virtio_net_vq_used_pending(virtq_t *vq)
 {
+	/* Memory barrier to ensure we see the latest used->idx written by
+	 * the device (DMA). Without this, on ARM the CPU may read a stale
+	 * cached value and miss completed buffers.
+	 */
+
+	__sync_synchronize();
+
 	return vq->last_used_idx != vq->used->idx;
 }
 
@@ -226,7 +233,6 @@ static void virtio_net_rx_worker(FAR void *arg)
 	struct virtio_net_rxbuf_s *rxbuf;
 	uint32_t pktlen;
 	uint32_t used_len;
-	uint32_t index;
 	uint16_t head;
 
 	while (virtio_net_vq_used_pending(&dev->rx_vq)) {
@@ -237,14 +243,19 @@ static void virtio_net_rx_worker(FAR void *arg)
 			continue;
 		}
 
-		index = (uint32_t)(rxbuf - dev->rxbuf);
 		pktlen = used_len - VIRTIO_NET_HDRSIZE;
 		if (pktlen <= VIRTIO_NET_BUFSIZE && dev->netdev != NULL) {
 			netdev_input(dev->netdev, rxbuf->data, pktlen);
 		}
 
-		dev->rx_vq.free_head = head;
-		virtio_net_add_rxbuf(dev, index);
+		/* NOTE: Do NOT set dev->rx_vq.free_head = head here!
+		 * virtqueue_get_buffer() already reclaims the descriptor
+		 * chain back to the free list. Overwriting free_head would
+		 * corrupt the free list by pointing it to a now-in-use
+		 * descriptor after virtio_net_add_rxbuf() allocates from it.
+		 */
+
+		virtio_net_add_rxbuf(dev, (uint32_t)(rxbuf - dev->rxbuf));
 		virtio_mmio_queue_notify(&dev->mmio_dev, VIRTIO_NET_RX_QUEUE);
 	}
 }
@@ -273,6 +284,7 @@ static int virtio_net_linkoutput(struct netdev *netdev, void *buf,
 	struct virtio_net_dev_s *dev = (struct virtio_net_dev_s *)netdev->priv;
 	struct virtqueue_buf vb[2];
 	int timeout;
+	int ret;
 
 	if (dev == NULL || !dev->ready || buf == NULL ||
 	    len == 0 || len > VIRTIO_NET_BUFSIZE) {
@@ -281,8 +293,15 @@ static int virtio_net_linkoutput(struct netdev *netdev, void *buf,
 
 	sem_wait(&dev->tx_lock);
 
+	/* Reclaim any previously completed TX descriptors.
+	 * This is essential to prevent TX queue exhaustion — without
+	 * reclamation, descriptors are consumed but never returned to the
+	 * free list, eventually causing virtqueue_add_buffer() to fail
+	 * with -ENOSPC.
+	 */
+
 	while (virtio_net_vq_used_pending(&dev->tx_vq)) {
-		dev->tx_vq.last_used_idx++;
+		virtqueue_get_buffer(&dev->tx_vq, NULL, NULL);
 	}
 
 	memset(&dev->txhdr, 0, VIRTIO_NET_HDRSIZE);
@@ -293,7 +312,8 @@ static int virtio_net_linkoutput(struct netdev *netdev, void *buf,
 	vb[1].buf = dev->txbuf;
 	vb[1].len = len;
 
-	if (virtqueue_add_buffer(&dev->tx_vq, vb, 2, 0, NULL) != OK) {
+	ret = virtqueue_add_buffer(&dev->tx_vq, vb, 2, 0, NULL);
+	if (ret != OK) {
 		sem_post(&dev->tx_lock);
 		return -EIO;
 	}
@@ -302,7 +322,11 @@ static int virtio_net_linkoutput(struct netdev *netdev, void *buf,
 
 	for (timeout = 0; timeout < VIRTIO_NET_TX_TIMEOUT; timeout++) {
 		if (virtio_net_vq_used_pending(&dev->tx_vq)) {
-			dev->tx_vq.last_used_idx++;
+			/* Reclaim the completed TX descriptor to prevent
+			 * queue exhaustion on subsequent sends.
+			 */
+
+			virtqueue_get_buffer(&dev->tx_vq, NULL, NULL);
 			sem_post(&dev->tx_lock);
 			return OK;
 		}

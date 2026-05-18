@@ -26,6 +26,7 @@
 #include <tinyara/config.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <tinyara/spinlock.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -98,6 +99,7 @@ struct virtqueue {
 	uint16_t free_head;		/* Next free descriptor slot */
 	uint16_t num_free;		/* Number of free descriptors */
 	bool ready;			/* Queue ready status */
+	spinlock_t lock;		/* Spinlock for ISR-safe concurrent access */
 };
 
 typedef struct virtqueue virtq_t;

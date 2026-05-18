@@ -133,7 +133,7 @@ struct virtio_blk_dev_s {
 	bool ready;			/* Device ready status */
 	virtq_t vq;			/* Virtqueue for block operations */
 	int irq;			/* IRQ number for this device */
-	volatile bool completion_received; /* Completion flag for interrupt handling */
+	sem_t io_lock;			/* Mutex for serializing I/O operations */
 	sem_t completion_sem;		/* Semaphore for completion synchronization */
 
 	/* DMA-safe request buffers (not on stack) */

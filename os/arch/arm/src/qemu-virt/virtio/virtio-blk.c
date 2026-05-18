@@ -63,10 +63,6 @@ static int virtio_blk_interrupt(int irq, FAR void *context, FAR void *arg)
 	if (int_status & VIRTIO_MMIO_INT_VRING) {
 		/* VRING interrupt - device has used a buffer */
 
-		/* Set completion flag */
-
-		dev->completion_received = true;
-
 		/* Wake up waiting task */
 
 		sem_post(&dev->completion_sem);
@@ -136,9 +132,12 @@ int virtio_blk_init(virtio_blk_dev_t *dev, uint32_t device_num)
 	 */
 
 	dev->irq = 48 + device_num;
-	dev->completion_received = false;
 
-	/* Initialize completion semaphore */
+	/* Initialize I/O lock semaphore (binary semaphore, initial value 1 = unlocked) */
+
+	sem_init(&dev->io_lock, 0, 1);
+
+	/* Initialize completion semaphore (initial value 0 = no completion pending) */
 
 	sem_init(&dev->completion_sem, 0, 0);
 
@@ -169,6 +168,7 @@ int virtio_blk_init(virtio_blk_dev_t *dev, uint32_t device_num)
 	/* Step 3: Read and negotiate features */
 
 	/* Low 32 bits */
+
 	device_features = virtio_mmio_get_device_features(&dev->mmio_dev);
 	dev->features = device_features;
 
@@ -190,6 +190,7 @@ int virtio_blk_init(virtio_blk_dev_t *dev, uint32_t device_num)
 	 * In v1 (legacy), there is no DRIVER_FEATURES_SEL — writing to offset
 	 * 0x020 again would overwrite the low features we just set.
 	 */
+
 	if (dev->mmio_dev.version >= 2) {
 		virtio_mmio_write32(&dev->mmio_dev, VIRTIO_MMIO_DEVICE_FEATURES_SEL, 1);
 		device_features_hi = virtio_mmio_read32(&dev->mmio_dev, VIRTIO_MMIO_DEVICE_FEATURES);
@@ -224,6 +225,7 @@ int virtio_blk_init(virtio_blk_dev_t *dev, uint32_t device_num)
 	 * defaults to 128.  Exceeding QUEUE_NUM_MAX causes the device to reject
 	 * QUEUE_READY and ignore all subsequent notifies.
 	 */
+
 	virtio_mmio_select_queue(&dev->mmio_dev, 0);
 	qnum_max = virtio_mmio_get_queue_num_max(&dev->mmio_dev);
 	if (qnum_max == 0) {
@@ -247,6 +249,7 @@ int virtio_blk_init(virtio_blk_dev_t *dev, uint32_t device_num)
 
 	if (dev->mmio_dev.version >= 2) {
 		/* v2: separate descriptor, driver, and device ring addresses */
+
 		ret = virtio_mmio_setup_queue(&dev->mmio_dev, 0, queue_num,
 					      (uint64_t)(uintptr_t)dev->vq.desc,
 					      (uint64_t)(uintptr_t)dev->vq.avail,
@@ -273,6 +276,7 @@ int virtio_blk_init(virtio_blk_dev_t *dev, uint32_t device_num)
 		/* v1 (legacy): single page-aligned base address via QUEUE_PFN.
 		 * vq->desc must be 4096-aligned (ensured by virtq_alloc_memory).
 		 */
+
 		ret = virtio_mmio_setup_queue_v1(&dev->mmio_dev, 0, queue_num,
 						 (uintptr_t)dev->vq.desc);
 		if (ret != OK) {
@@ -349,9 +353,18 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 		return -EINVAL;
 	}
 
+	/* Acquire I/O lock to serialize access to shared DMA buffers and
+	 * the completion semaphore. This prevents concurrent tasks from
+	 * corrupting req_hdr/req_footer and ensures each sem_wait() matches
+	 * the correct sem_post() from the ISR.
+	 */
+
+	sem_wait(&dev->io_lock);
+
 	blk_size = dev->config.blk_size ? dev->config.blk_size : 512;
 
 	/* Use DMA-safe device buffers instead of stack-allocated ones */
+
 	dev->req_hdr.type = VIRTIO_BLK_T_IN;
 	dev->req_hdr.reserved = 0;
 	dev->req_hdr.sector = sector;
@@ -359,6 +372,7 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 	dev->req_ndesc = 3;
 
 	/* Memory barrier to ensure DMA buffers are ready */
+
 	__sync_synchronize();
 
 	desc[0].addr  = (uint64_t)(uintptr_t)&dev->req_hdr;
@@ -380,32 +394,42 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 
 	ret = virtq_add_buffer(&dev->vq, desc, 3);
 	if (ret != OK) {
+		sem_post(&dev->io_lock);
 		return ret;
 	}
 
-	/* Notify the device via the MMIO queue notify register */
+	/* Notify the device via the MMIO queue notify register.
+	 * The completion semaphore is already initialized to 0, so there
+	 * is no risk of a stale sem_post() from a previous operation being
+	 * consumed by this sem_wait() — the io_lock ensures we don't start
+	 * a new operation until the previous one's sem_wait() has returned.
+	 */
 
-	dev->completion_received = false;
 	virtq_kick(&dev->vq);
 	virtio_mmio_queue_notify(&dev->mmio_dev, 0);
 
 	/* Wait for the interrupt handler to signal completion */
 
 	if (sem_wait(&dev->completion_sem) != OK) {
+		sem_post(&dev->io_lock);
 		return -EIO;
 	}
 
 	/* Memory barrier to ensure we read the completed DMA buffers */
+
 	__sync_synchronize();
 
 	if (virtq_get_buffer(&dev->vq, NULL) == -EAGAIN) {
+		sem_post(&dev->io_lock);
 		return -EIO;
 	}
 
 	if (dev->req_footer.status != VIRTIO_BLK_S_OK) {
+		sem_post(&dev->io_lock);
 		return -EIO;
 	}
 
+	sem_post(&dev->io_lock);
 	return OK;
 }
 
@@ -427,9 +451,16 @@ int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer,
 		return -EINVAL;
 	}
 
+	/* Acquire I/O lock to serialize access to shared DMA buffers and
+	 * the completion semaphore.
+	 */
+
+	sem_wait(&dev->io_lock);
+
 	blk_size = dev->config.blk_size ? dev->config.blk_size : 512;
 
 	/* Use DMA-safe device buffers instead of stack-allocated ones */
+
 	dev->req_hdr.type = VIRTIO_BLK_T_OUT;
 	dev->req_hdr.reserved = 0;
 	dev->req_hdr.sector = sector;
@@ -437,6 +468,7 @@ int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer,
 	dev->req_ndesc = 3;
 
 	/* Memory barrier to ensure DMA buffers are ready */
+
 	__sync_synchronize();
 
 	desc[0].addr  = (uint64_t)(uintptr_t)&dev->req_hdr;
@@ -458,32 +490,37 @@ int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer,
 
 	ret = virtq_add_buffer(&dev->vq, desc, 3);
 	if (ret != OK) {
+		sem_post(&dev->io_lock);
 		return ret;
 	}
 
 	/* Notify the device via the MMIO queue notify register */
 
-	dev->completion_received = false;
 	virtq_kick(&dev->vq);
 	virtio_mmio_queue_notify(&dev->mmio_dev, 0);
 
 	/* Wait for the interrupt handler to signal completion */
 
 	if (sem_wait(&dev->completion_sem) != OK) {
+		sem_post(&dev->io_lock);
 		return -EIO;
 	}
 
 	/* Memory barrier to ensure we read the completed DMA buffers */
+
 	__sync_synchronize();
 
 	if (virtq_get_buffer(&dev->vq, NULL) == -EAGAIN) {
+		sem_post(&dev->io_lock);
 		return -EIO;
 	}
 
 	if (dev->req_footer.status != VIRTIO_BLK_S_OK) {
+		sem_post(&dev->io_lock);
 		return -EIO;
 	}
 
+	sem_post(&dev->io_lock);
 	return OK;
 }
 
