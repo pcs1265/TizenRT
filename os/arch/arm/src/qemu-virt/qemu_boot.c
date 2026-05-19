@@ -129,42 +129,4 @@ void arm_boot(void)
    */
   /* Serial initialization will be done in up_initialize() */
 #endif
-
-#ifdef CONFIG_SMP
-  smp_init();
-#endif
 }
-
-#if defined(CONFIG_SMP)
-static unsigned long cpu_start[CONFIG_SMP_NCPUS] = {
-  0,
-#if CONFIG_SMP_NCPUS > 1
-  (unsigned long)__cpu1_start,
-#endif
-#if CONFIG_SMP_NCPUS > 2
-  (unsigned long)__cpu2_start,
-#endif
-#if CONFIG_SMP_NCPUS > 3
-  (unsigned long)__cpu3_start,
-#endif
-};
-#endif
-
-#if defined(CONFIG_ARM_PSCI) && defined(CONFIG_SMP)
-void smp_init(void)
-{
-	long xCoreID;
-	int err;
-
-#if ( CONFIG_SMP_NCPUS > 1 )
-	for (xCoreID = 0; xCoreID < CONFIG_SMP_NCPUS; xCoreID++) {
-		if (xCoreID == up_cpu_index()) {
-			continue;
-		}
-		err = psci_cpu_on(xCoreID, cpu_start[xCoreID]);
-    
-		DEBUGASSERT(err >= 0);
-	}
-#endif
-}
-#endif
