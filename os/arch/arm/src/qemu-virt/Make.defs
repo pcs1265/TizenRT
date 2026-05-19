@@ -202,7 +202,7 @@ CHIP_CSRCS += qemu_pgalloc.c qemu_memorymap.c
 endif
 
 ifeq ($(CONFIG_SMP),y)
-  CHIP_CSRCS += qemu_cpuboot.c
+  CHIP_CSRCS += qemu_cpuboot.c qemu_smp.c
 endif
 
 ifeq ($(CONFIG_ARCH_IDLE_CUSTOM),y)

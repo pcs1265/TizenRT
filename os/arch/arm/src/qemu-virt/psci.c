@@ -287,3 +287,18 @@ void up_systemreset(void)
 
   for (; ; );
 }
+
+int psci_affinity_info(unsigned long target_cpu, unsigned long afflvl)
+{
+  int ret;
+
+  if (psci_data.conduit == SMCCC_CONDUIT_NONE)
+    {
+      return -EINVAL;
+    }
+
+  ret = psci_data.invoke_psci_fn(PSCI_0_2_FN_AFFINITY_INFO,
+                                  target_cpu, afflvl, 0);
+
+  return (int)ret;
+}
