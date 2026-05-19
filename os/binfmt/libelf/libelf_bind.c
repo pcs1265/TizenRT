@@ -380,6 +380,17 @@ int elf_bind(FAR struct elf_loadinfo_s *loadinfo, FAR const struct symtab_s *exp
 	/* Read the symbol table into memory */
 	elf_readsymtab(loadinfo);
 
+	/* Free the iobuffer which was used for section name lookups during
+	 * elf_loadctors()/elf_loaddtors(). It is no longer needed because
+	 * elf_symname() will set iobuffer to point into strtab, which would
+	 * leak the original kmm_malloc'd buffer.
+	 */
+	if (loadinfo->iobuffer) {
+		kmm_free((FAR void *)loadinfo->iobuffer);
+		loadinfo->iobuffer = NULL;
+		loadinfo->buflen = 0;
+	}
+
 #ifdef CONFIG_SUPPORT_COMMON_BINARY
 	elf_readstrtab(loadinfo);
 
