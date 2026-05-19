@@ -172,5 +172,6 @@ int psci_cpu_off(void);
 int psci_cpu_on(unsigned long cpuid, uintptr_t entry_point);
 int psci_sys_poweroff(void);
 int psci_sys_reset(void);
+int psci_affinity_info(unsigned long target_cpu, unsigned long afflvl);
 
 #endif /* __ARCH_ARM_SRC_ARMV7_A_ARM_CPU_PSCI_H */
