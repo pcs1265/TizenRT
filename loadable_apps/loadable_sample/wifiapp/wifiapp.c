@@ -36,20 +36,22 @@
 
 
 /*
- * Test Secure Storage APIs - Data A/B Toggle
+ * Test Secure Storage APIs - Data A/B Toggle (4 Slots)
  */
 #include <tinyara/seclink.h>
 #include <tinyara/security_hal.h>
 
-#define TEST_SS_SLOT_INDEX      5
-#define TEST_SS_MAX_DATA_SIZE   8192
-#define TEST_SS_DATA_SIZE       2048
+#define TEST_SS_SLOT_COUNT     1
+#define TEST_SS_SLOT_START     5  /* Slots 5, 6, 7, 8 */
+#define TEST_SS_MAX_DATA_SIZE  8192
+#define TEST_SS_DATA_SIZE      2048
 
 /* Test data A and B */
 static const unsigned char DATA_A[2048] = { [ 0 ... 2047 ] = 0x55};
 static const unsigned char DATA_B[2048] = { [ 0 ... 2047 ] = 0xAA};
 
-static bool g_use_data_a = true;  // true: write A next, false: write B next
+/* Per-slot state tracking: true = write A next, false = write B next */
+static bool g_slot_use_data_a[TEST_SS_SLOT_COUNT];
 static int g_write_count = 0;
 
 void PrintBuffer(const char *header, unsigned char* buffer, uint32_t len)
@@ -108,41 +110,41 @@ static void ss_free_buffer(hal_data *output)
 	}
 }
 
-/* Helper function: Write data to slot */
-static int ss_write(sl_ctx sl_hnd, const unsigned char *data, uint32_t data_len)
+/* Helper function: Write data to specific slot */
+static int ss_write_slot(sl_ctx sl_hnd, uint32_t slot_index, const unsigned char *data, uint32_t data_len)
 {
 	hal_data input = {(unsigned char *)data, data_len};
-	int ret = sl_write_storage(sl_hnd, TEST_SS_SLOT_INDEX, &input);
+	int ret = sl_write_storage(sl_hnd, slot_index, &input);
 	if (ret == SECLINK_OK) {
-		printf("   Successfully wrote %d bytes\n", data_len);
+		printf("   Successfully wrote %d bytes to slot %d\n", data_len, slot_index);
 	} else {
-		printf("   ssFail! sl_write_storage returned %d\n", ret);
+		printf("   ssFail! sl_write_storage(slot %d) returned %d\n", slot_index, ret);
 	}
 	return ret;
 }
 
-/* Helper function: Read data from slot */
-static int ss_read(sl_ctx sl_hnd, hal_data *output)
+/* Helper function: Read data from specific slot */
+static int ss_read_slot(sl_ctx sl_hnd, uint32_t slot_index, hal_data *output)
 {
-	int ret = sl_read_storage(sl_hnd, TEST_SS_SLOT_INDEX, output);
+	int ret = sl_read_storage(sl_hnd, slot_index, output);
 	if (ret == SECLINK_OK) {
-		printf("   Read %d bytes\n", output->data_len);
+		printf("   Read %d bytes from slot %d\n", output->data_len, slot_index);
 	} else if (ret == SECLINK_EMPTY_SLOT) {
-		printf("   Slot is empty\n");
+		printf("   Slot %d is empty\n", slot_index);
 	} else {
-		printf("   ssFail! sl_read_storage returned %d\n", ret);
+		printf("   ssFail! sl_read_storage(slot %d) returned %d\n", slot_index, ret);
 	}
 	return ret;
 }
 
-/* Helper function: Delete slot */
-static int ss_delete(sl_ctx sl_hnd)
+/* Helper function: Delete specific slot */
+static int ss_delete_slot(sl_ctx sl_hnd, uint32_t slot_index)
 {
-	int ret = sl_delete_storage(sl_hnd, TEST_SS_SLOT_INDEX);
+	int ret = sl_delete_storage(sl_hnd, slot_index);
 	if (ret == SECLINK_OK) {
-		printf("   Successfully deleted slot %d\n", TEST_SS_SLOT_INDEX);
+		printf("   Successfully deleted slot %d\n", slot_index);
 	} else {
-		printf("   ssFail! sl_delete_storage returned %d\n", ret);
+		printf("   ssFail! sl_delete_storage(slot %d) returned %d\n", slot_index, ret);
 	}
 	return ret;
 }
@@ -151,107 +153,115 @@ static int ss_delete(sl_ctx sl_hnd)
 static int ss_check_data_type(const unsigned char *data, uint32_t len)
 {
 	if (len != TEST_SS_DATA_SIZE) {
-		return -1;  // Unknown
+		return -1;  /* Unknown */
 	}
 	if (memcmp(data, DATA_A, len) == 0) {
-		return 0;  // Data A
+		return 0;  /* Data A */
 	}
 	if (memcmp(data, DATA_B, len) == 0) {
-		return 1;  // Data B
+		return 1;  /* Data B */
 	}
-	return -1;  // Unknown
+	return -1;  /* Unknown */
 }
 
-/* Check initial state and determine next data to write */
+/* Check initial state for a single slot and set its A/B state */
+static void ss_check_slot_initial_state(sl_ctx sl_hnd, int slot_offset)
+{
+	hal_data output = {NULL, 0};
+	int data_type;
+	uint32_t slot_index = TEST_SS_SLOT_START + slot_offset;
+
+	printf("Read slot %d (initial state)...\n", slot_index);
+	if (ss_alloc_buffer(&output) < 0) {
+		g_slot_use_data_a[slot_offset] = true;
+		return;
+	}
+
+	if (ss_read_slot(sl_hnd, slot_index, &output) == SECLINK_OK) {
+		data_type = ss_check_data_type(output.data, output.data_len);
+		if (data_type == 0) {
+			printf("   Slot %d current data is: DATA_A\n", slot_index);
+			g_slot_use_data_a[slot_offset] = false;  /* Next write should be B */
+		} else if (data_type == 1) {
+			printf("   Slot %d current data is: DATA_B\n", slot_index);
+			g_slot_use_data_a[slot_offset] = true;   /* Next write should be A */
+		} else {
+			printf("   ssFail! Slot %d current data is: UNKNOWN\n", slot_index);
+			PrintBuffer("   Read data", output.data, output.data_len);
+			g_slot_use_data_a[slot_offset] = true;
+		}
+	} else {
+		g_slot_use_data_a[slot_offset] = true;  /* Start with Data A */
+	}
+
+	printf("   Slot %d next write will be: DATA_%c\n\n", slot_index, 
+	       g_slot_use_data_a[slot_offset] ? 'A' : 'B');
+	ss_free_buffer(&output);
+}
+
+/* Check initial state for all 4 slots */
 static void ss_check_initial_state(void)
 {
 	sl_ctx sl_hnd;
-	hal_data output = {NULL, 0};
-	int data_type;
+	int i;
 
-	printf("=== Initial State Check ===\n\n");
+	printf("=== Initial State Check (All %d Slots) ===\n\n", TEST_SS_SLOT_COUNT);
 
 	/* Initialize seclink */
 	if (ss_init(&sl_hnd) < 0) {
 		return;
 	}
 
-	printf("Read slot %d (initial state)...\n", TEST_SS_SLOT_INDEX);
-	if (ss_alloc_buffer(&output) < 0) {
-		ss_deinit(sl_hnd);
-		return;
+	/* Check each slot */
+	for (i = 0; i < TEST_SS_SLOT_COUNT; i++) {
+		ss_check_slot_initial_state(sl_hnd, i);
 	}
 
-	if (ss_read(sl_hnd, &output) == SECLINK_OK) {
-		data_type = ss_check_data_type(output.data, output.data_len);
-		if (data_type == 0) {
-			printf("   Current data is: DATA_A\n");
-			g_use_data_a = false;  // Next write should be B
-		} else if (data_type == 1) {
-			printf("   Current data is: DATA_B\n");
-			g_use_data_a = true;   // Next write should be A
-		} else {
-			printf("   ssFail! Current data is: UNKNOWN\n");
-			PrintBuffer("   Read data", output.data, output.data_len);
-			g_use_data_a = true;
-		}
-	} else {
-		g_use_data_a = true;  // Start with Data A
-	}
-
-	printf("\n   Next write will be: DATA_%c\n\n", g_use_data_a ? 'A' : 'B');
-	ss_free_buffer(&output);
 	ss_deinit(sl_hnd);
 }
 
-/* Run single test iteration: write -> read -> verify -> delete -> verify deletion */
-static void ss_run_test_iteration(void)
+/* Run single test iteration for a specific slot: write -> read -> verify -> delete -> verify deletion */
+static void ss_run_slot_test_iteration(sl_ctx sl_hnd, int slot_offset)
 {
-	sl_ctx sl_hnd;
 	hal_data output = {NULL, 0};
-	const unsigned char *write_data = g_use_data_a ? DATA_A : DATA_B;
+	uint32_t slot_index = TEST_SS_SLOT_START + slot_offset;
+	bool use_data_a = g_slot_use_data_a[slot_offset];
+	const unsigned char *write_data = use_data_a ? DATA_A : DATA_B;
 	int ret;
 
-	printf("=== Write Test #%d (DATA_%c) ===\n\n", g_write_count, g_use_data_a ? 'A' : 'B');
-
-	/* Initialize seclink */
-	if (ss_init(&sl_hnd) < 0) {
-		return;
-	}
+	printf("--- Slot %d Test (DATA_%c) ---\n", slot_index, use_data_a ? 'A' : 'B');
 
 	/* Write data */
-	printf("Write DATA_%c to slot %d...\n", g_use_data_a ? 'A' : 'B', TEST_SS_SLOT_INDEX);
-	if (ss_write(sl_hnd, write_data, TEST_SS_DATA_SIZE) != SECLINK_OK) {
-		ss_deinit(sl_hnd);
+	printf("Write DATA_%c to slot %d...\n", use_data_a ? 'A' : 'B', slot_index);
+	if (ss_write_slot(sl_hnd, slot_index, write_data, TEST_SS_DATA_SIZE) != SECLINK_OK) {
 		return;
 	}
 	printf("   OK\n\n");
 
 	/* Read back and verify */
-	printf("Read back from slot %d...\n", TEST_SS_SLOT_INDEX);
+	printf("Read back from slot %d...\n", slot_index);
 	if (ss_alloc_buffer(&output) < 0) {
-		ss_deinit(sl_hnd);
 		return;
 	}
 
-	ret = ss_read(sl_hnd, &output);
+	ret = ss_read_slot(sl_hnd, slot_index, &output);
 	if (ret == SECLINK_OK) {
 		if (output.data_len == TEST_SS_DATA_SIZE && 
 		    memcmp(output.data, write_data, TEST_SS_DATA_SIZE) == 0) {
-			printf("   Data verification: OK (DATA_%c)\n", g_use_data_a ? 'A' : 'B');
+			printf("   Data verification: OK (DATA_%c)\n", use_data_a ? 'A' : 'B');
 		} else {
 			printf("   ssFail! Data verification: MISMATCH!\n");
 			PrintBuffer("   Read data", output.data, output.data_len);
 			
 			/* Read again to verify */
-			printf("\n   Re-reading slot %d...\n", TEST_SS_SLOT_INDEX);
+			printf("\n   Re-reading slot %d...\n", slot_index);
 			ss_free_buffer(&output);
 			if (ss_alloc_buffer(&output) == 0) {
-				ret = ss_read(sl_hnd, &output);
+				ret = ss_read_slot(sl_hnd, slot_index, &output);
 				if (ret == SECLINK_OK) {
 					if (output.data_len == TEST_SS_DATA_SIZE && 
 					    memcmp(output.data, write_data, TEST_SS_DATA_SIZE) == 0) {
-						printf("   Re-read verification: OK (DATA_%c)\n", g_use_data_a ? 'A' : 'B');
+						printf("   Re-read verification: OK (DATA_%c)\n", use_data_a ? 'A' : 'B');
 					} else {
 						printf("   ssFail! Re-read verification: MISMATCH again!\n");
 						PrintBuffer("   Re-read data", output.data, output.data_len);
@@ -266,27 +276,46 @@ static void ss_run_test_iteration(void)
 	printf("\n");
 
 	/* Delete data */
-	printf("Delete slot %d...\n", TEST_SS_SLOT_INDEX);
-	ss_delete(sl_hnd);
+	printf("Delete slot %d...\n", slot_index);
+	ss_delete_slot(sl_hnd, slot_index);
 	printf("   OK\n\n");
 
 	/* Verify deletion */
-	printf("Read slot %d (verify deletion)...\n", TEST_SS_SLOT_INDEX);
+	printf("Read slot %d (verify deletion)...\n", slot_index);
 	if (ss_alloc_buffer(&output) < 0) {
-		ss_deinit(sl_hnd);
 		return;
 	}
-	ret = ss_read(sl_hnd, &output);
+	ret = ss_read_slot(sl_hnd, slot_index, &output);
 	if (ret == SECLINK_EMPTY_SLOT) {
-		printf("   Slot %d is empty - deletion verified\n", TEST_SS_SLOT_INDEX);
+		printf("   Slot %d is empty - deletion verified\n", slot_index);
 	} else if (ret == SECLINK_OK) {
-		printf("   ssFail! Data still exists in slot %d (unexpected)\n", TEST_SS_SLOT_INDEX);
+		printf("   ssFail! Data still exists in slot %d (unexpected)\n", slot_index);
 	}
 	ss_free_buffer(&output);
 	printf("   OK\n\n");
 
 	/* Toggle for next write */
-	g_use_data_a = !g_use_data_a;
+	g_slot_use_data_a[slot_offset] = !g_slot_use_data_a[slot_offset];
+}
+
+/* Run test iteration for all 4 slots */
+static void ss_run_test_iteration(void)
+{
+	sl_ctx sl_hnd;
+	int i;
+
+	printf("=== Write Test #%d (All %d Slots) ===\n\n", g_write_count, TEST_SS_SLOT_COUNT);
+
+	/* Initialize seclink */
+	if (ss_init(&sl_hnd) < 0) {
+		return;
+	}
+
+	/* Test each slot */
+	for (i = 0; i < TEST_SS_SLOT_COUNT; i++) {
+		ss_run_slot_test_iteration(sl_hnd, i);
+	}
+
 	g_write_count++;
 
 	ss_deinit(sl_hnd);
@@ -296,10 +325,10 @@ void
 test_securestorage(void)
 {
 	printf("\n========================================\n");
-	printf("  Secure Storage Test\n");
+	printf("  Secure Storage Test (%d Slots)\n", TEST_SS_SLOT_COUNT);
 	printf("========================================\n\n");
 
-	/* Check initial state */
+	/* Check initial state for all slots */
 	ss_check_initial_state();
 
 	/* Run test iterations */
