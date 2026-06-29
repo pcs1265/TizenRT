@@ -44,8 +44,12 @@
 #include <tinyara/arch.h> 
 #include <tinyara/config.h> 
 #include <stdint.h> 
+#include <stdio.h>
 #include <tinyara/board.h> 
+#include <tinyara/kthread.h>
 #include <tinyara/fs/mtd.h> 
+#include <tinyara/netmgr/netdev_mgr.h>
+#include <unistd.h>
 #include "common.h"
 
 #include "qemu_cfi.h"
@@ -55,14 +59,83 @@
 #include "virtio/virtio-blk.h"
 #endif
 
+#if defined(CONFIG_QEMU_VIRT_VIRTIO_NET) && defined(CONFIG_NET_NETMGR) && defined(CONFIG_LWIP_DHCPC)
+extern int _netdev_dhcpc_start(const char *intf);
+extern struct netdev *nm_get_netdev(uint8_t *ifname);
+extern int nm_ifup(struct netdev *dev);
+#endif
+
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
 
+#if defined(CONFIG_QEMU_VIRT_VIRTIO_NET) && defined(CONFIG_NET_NETMGR) && defined(CONFIG_LWIP_DHCPC)
+#define QEMU_AUTO_NETIF "eth0"
+#define QEMU_AUTO_NET_RETRIES 5
+#define QEMU_AUTO_NET_PRIORITY 100
+#define QEMU_AUTO_NET_STACKSIZE 2048
+#endif
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+#if defined(CONFIG_QEMU_VIRT_VIRTIO_NET) && defined(CONFIG_NET_NETMGR) && defined(CONFIG_LWIP_DHCPC)
+static int qemu_auto_netinit(int argc, char *argv[])
+{
+	struct netdev *dev;
+	int dhcp_ret = ERROR;
+	int ifup_ret = ERROR;
+	int retry;
+
+	(void)argc;
+	(void)argv;
+
+	/* board_initialize() runs before net_initialize(); let the net stack start. */
+	sleep(1);
+
+	for (retry = 0; retry < QEMU_AUTO_NET_RETRIES; retry++) {
+		dhcp_ret = _netdev_dhcpc_start(QEMU_AUTO_NETIF);
+		if (dhcp_ret == OK) {
+			break;
+		}
+
+		sleep(1);
+	}
+
+	if (dhcp_ret != OK) {
+		printf("qemu-net: DHCP failed on %s: %d\n", QEMU_AUTO_NETIF, dhcp_ret);
+		return dhcp_ret;
+	}
+
+	dev = nm_get_netdev((uint8_t *)QEMU_AUTO_NETIF);
+	if (dev != NULL) {
+		ifup_ret = nm_ifup(dev);
+	}
+
+	printf("qemu-net: %s DHCP %s, ifup %s\n",
+	       QEMU_AUTO_NETIF,
+	       (dhcp_ret == OK) ? "OK" : "failed",
+	       (ifup_ret == OK) ? "OK" : "failed");
+
+	return ifup_ret;
+}
+
+static void qemu_start_auto_netinit(void)
+{
+	int ret;
+
+	ret = kernel_thread("qemu_netinit",
+	                    QEMU_AUTO_NET_PRIORITY,
+	                    QEMU_AUTO_NET_STACKSIZE,
+	                    qemu_auto_netinit,
+	                    (char * const *)NULL);
+	if (ret < 0) {
+		lldbg("ERROR: qemu_netinit thread failed: %d\n", ret);
+	}
+}
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -135,6 +208,10 @@ void board_initialize(void)
 
 #ifdef CONFIG_QEMU_VIRT_VIRTIO_BLK
 	virtio_blk_driver_initialize(0);
+#endif
+
+#if defined(CONFIG_QEMU_VIRT_VIRTIO_NET) && defined(CONFIG_NET_NETMGR) && defined(CONFIG_LWIP_DHCPC)
+	qemu_start_auto_netinit();
 #endif
 }
 #else
