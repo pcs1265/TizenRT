@@ -65,6 +65,14 @@ extern struct netdev *nm_get_netdev(uint8_t *ifname);
 extern int nm_ifup(struct netdev *dev);
 #endif
 
+#ifdef CONFIG_QEMU_VIRT_VIRTIO_SERIAL
+#include "virtio/virtio-serial.h"
+#endif
+
+#ifdef CONFIG_QEMU_VIRT_VIRTIO_SERIAL_CHAR
+#include "virtio/virtio-serial-char.h"
+#endif
+
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -208,6 +216,14 @@ void board_initialize(void)
 
 #ifdef CONFIG_QEMU_VIRT_VIRTIO_BLK
 	virtio_blk_driver_initialize(0);
+#endif
+
+#ifdef CONFIG_QEMU_VIRT_VIRTIO_SERIAL
+	virtio_serial_driver_initialize(CONFIG_QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM);
+#endif
+
+#ifdef CONFIG_QEMU_VIRT_VIRTIO_SERIAL_CHAR
+	virtio_serial_char_driver_initialize(CONFIG_QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM);
 #endif
 
 #if defined(CONFIG_QEMU_VIRT_VIRTIO_NET) && defined(CONFIG_NET_NETMGR) && defined(CONFIG_LWIP_DHCPC)

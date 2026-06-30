@@ -232,6 +232,14 @@ ifeq ($(CONFIG_QEMU_VIRT_VIRTIO_NET),y)
   CHIP_CSRCS += virtio-net.c
 endif
 
+ifeq ($(CONFIG_QEMU_VIRT_VIRTIO_SERIAL),y)
+  CHIP_CSRCS += virtio-serial.c
+endif
+
+ifeq ($(CONFIG_QEMU_VIRT_VIRTIO_SERIAL_CHAR),y)
+  CHIP_CSRCS += virtio-serial-char.c
+endif
+
 endif
 
 VPATH += chip/virtio
