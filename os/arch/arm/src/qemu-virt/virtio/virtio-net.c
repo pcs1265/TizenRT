@@ -165,6 +165,10 @@ static int virtio_net_setup_queue(struct virtio_net_dev_s *dev,
 		return ret;
 	}
 
+	vq->vq_queue_index = queue_sel;
+	virtqueue_set_notify(vq, virtio_mmio_virtqueue_notify,
+			      &dev->mmio_dev);
+
 	if (dev->mmio_dev.version >= 2) {
 		ret = virtio_mmio_setup_queue(&dev->mmio_dev, queue_sel,
 					      *queue_num,
@@ -212,7 +216,7 @@ static void virtio_net_rxfill(struct virtio_net_dev_s *dev)
 		virtio_net_add_rxbuf(dev, i);
 	}
 
-	virtio_mmio_queue_notify(&dev->mmio_dev, VIRTIO_NET_RX_QUEUE);
+	virtqueue_kick(&dev->rx_vq);
 }
 
 static bool virtio_net_vq_used_pending(virtq_t *vq)
@@ -256,7 +260,7 @@ static void virtio_net_rx_worker(FAR void *arg)
 		 */
 
 		virtio_net_add_rxbuf(dev, (uint32_t)(rxbuf - dev->rxbuf));
-		virtio_mmio_queue_notify(&dev->mmio_dev, VIRTIO_NET_RX_QUEUE);
+		virtqueue_kick(&dev->rx_vq);
 	}
 }
 
@@ -318,7 +322,7 @@ static int virtio_net_linkoutput(struct netdev *netdev, void *buf,
 		return -EIO;
 	}
 
-	virtio_mmio_queue_notify(&dev->mmio_dev, VIRTIO_NET_TX_QUEUE);
+	virtqueue_kick(&dev->tx_vq);
 
 	for (timeout = 0; timeout < VIRTIO_NET_TX_TIMEOUT; timeout++) {
 		if (virtio_net_vq_used_pending(&dev->tx_vq)) {

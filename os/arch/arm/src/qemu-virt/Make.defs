@@ -222,7 +222,7 @@ endif
 
 ifeq ($(CONFIG_QEMU_VIRT_VIRTIO),y)
 
-CHIP_CSRCS += virtio-mmio.c virtio-queue.c
+CHIP_CSRCS += virtio.c virtio-mmio.c virtio-queue.c
 
 ifeq ($(CONFIG_QEMU_VIRT_VIRTIO_BLK),y)
   CHIP_CSRCS += virtio-blk.c virtio-blk-driver.c
