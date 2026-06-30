@@ -134,6 +134,7 @@ void virtio_mmio_set_queue_num(virtio_mmio_dev_t *dev, uint32_t queue_num);
 void virtio_mmio_set_queue_align(virtio_mmio_dev_t *dev, uint32_t align);
 void virtio_mmio_set_queue_pfn(virtio_mmio_dev_t *dev, uint32_t pfn);
 void virtio_mmio_queue_notify(virtio_mmio_dev_t *dev, uint32_t queue_num);
+void virtio_mmio_virtqueue_notify(struct virtqueue *vq, void *arg);
 int virtio_mmio_setup_queue_v1(virtio_mmio_dev_t *dev, uint32_t queue_sel,
 			       uint32_t queue_num, uintptr_t queue_base_pa);
 int virtio_mmio_setup_queue(virtio_mmio_dev_t *dev, uint32_t queue_sel,

@@ -119,6 +119,7 @@ int virtq_init(virtq_t *vq, uint16_t num)
 	vq->num_mask = num - 1;
 	vq->num_free = num;
 	vq->free_head = 0;
+	vq->vq_nentries = num;
 
 	/* Initialize spinlock to unlocked state */
 
@@ -329,6 +330,29 @@ int virtqueue_add_buffer(struct virtqueue *vq, struct virtqueue_buf *buf_list,
 }
 
 /****************************************************************************
+ * Name: virtqueue_add_buffer_lock
+ ****************************************************************************/
+
+int virtqueue_add_buffer_lock(struct virtqueue *vq,
+			      struct virtqueue_buf *buf_list, int readable,
+			      int writable, void *cookie, spinlock_t *lock)
+{
+	irqstate_t flags;
+	int ret;
+
+	if (vq != NULL && lock == &vq->lock) {
+		return virtqueue_add_buffer(vq, buf_list, readable, writable,
+					    cookie);
+	}
+
+	flags = spin_lock_irqsave(lock);
+	ret = virtqueue_add_buffer(vq, buf_list, readable, writable, cookie);
+	spin_unlock_irqrestore(lock, flags);
+
+	return ret;
+}
+
+/****************************************************************************
  * Name: virtq_add_buffer
  *
  * Description:
@@ -396,8 +420,13 @@ int virtq_get_buffer(virtq_t *vq, uint32_t *len)
 	 * the reclaimed chain head.
 	 */
 
-	chain_len = vq->desc_chain_len[head];
-	if (chain_len > 0 && head < vq->num) {
+	if (head < vq->num) {
+		chain_len = vq->desc_chain_len[head];
+	} else {
+		chain_len = 0;
+	}
+
+	if (chain_len > 0) {
 		/* Walk the chain to find the last descriptor */
 
 		last_desc = head;
@@ -491,8 +520,13 @@ void *virtq_get_buffer_cookie(virtq_t *vq, uint32_t *len, uint16_t *idx)
 	 * the reclaimed chain head.
 	 */
 
-	chain_len = vq->desc_chain_len[head];
-	if (chain_len > 0 && head < vq->num) {
+	if (head < vq->num) {
+		chain_len = vq->desc_chain_len[head];
+	} else {
+		chain_len = 0;
+	}
+
+	if (chain_len > 0) {
 		/* Walk the chain to find the last descriptor */
 
 		last_desc = head;
@@ -526,6 +560,140 @@ void *virtq_get_buffer_cookie(virtq_t *vq, uint32_t *len, uint16_t *idx)
 }
 
 /****************************************************************************
+ * Name: virtqueue_nused
+ *
+ * Description:
+ *   Return the number of used buffers visible to the driver.
+ *
+ ****************************************************************************/
+
+uint16_t virtqueue_nused(struct virtqueue *vq)
+{
+	if (!vq || !vq->ready) {
+		return 0;
+	}
+
+	__sync_synchronize();
+	return (uint16_t)(vq->used->idx - vq->last_used_idx);
+}
+
+/****************************************************************************
+ * Name: virtqueue_set_callback
+ ****************************************************************************/
+
+void virtqueue_set_callback(struct virtqueue *vq, vq_callback callback)
+{
+	irqstate_t flags;
+
+	if (!vq) {
+		return;
+	}
+
+	flags = spin_lock_irqsave(&vq->lock);
+	vq->callback_saved = callback;
+	if (vq->cb_enabled) {
+		vq->callback = callback;
+	}
+
+	spin_unlock_irqrestore(&vq->lock, flags);
+}
+
+/****************************************************************************
+ * Name: virtqueue_set_notify
+ ****************************************************************************/
+
+void virtqueue_set_notify(struct virtqueue *vq, virtqueue_notify_t notify,
+			  void *arg)
+{
+	irqstate_t flags;
+
+	if (!vq) {
+		return;
+	}
+
+	flags = spin_lock_irqsave(&vq->lock);
+	vq->notify = notify;
+	vq->notify_arg = arg;
+	spin_unlock_irqrestore(&vq->lock, flags);
+}
+
+/****************************************************************************
+ * Name: virtqueue_enable_cb
+ ****************************************************************************/
+
+void virtqueue_enable_cb(struct virtqueue *vq)
+{
+	irqstate_t flags;
+
+	if (!vq || !vq->ready) {
+		return;
+	}
+
+	flags = spin_lock_irqsave(&vq->lock);
+	vq->avail->flags &= ~VIRTQ_AVAIL_F_NO_INTERRUPT;
+	vq->cb_enabled = true;
+	vq->callback = vq->callback_saved;
+	__sync_synchronize();
+	spin_unlock_irqrestore(&vq->lock, flags);
+}
+
+/****************************************************************************
+ * Name: virtqueue_disable_cb
+ ****************************************************************************/
+
+void virtqueue_disable_cb(struct virtqueue *vq)
+{
+	irqstate_t flags;
+
+	if (!vq || !vq->ready) {
+		return;
+	}
+
+	flags = spin_lock_irqsave(&vq->lock);
+	vq->avail->flags |= VIRTQ_AVAIL_F_NO_INTERRUPT;
+	vq->cb_enabled = false;
+	vq->callback = NULL;
+	__sync_synchronize();
+	spin_unlock_irqrestore(&vq->lock, flags);
+}
+
+/****************************************************************************
+ * Name: virtqueue_enable_cb_lock
+ ****************************************************************************/
+
+void virtqueue_enable_cb_lock(struct virtqueue *vq, spinlock_t *lock)
+{
+	irqstate_t flags;
+
+	if (vq != NULL && lock == &vq->lock) {
+		virtqueue_enable_cb(vq);
+		return;
+	}
+
+	flags = spin_lock_irqsave(lock);
+	virtqueue_enable_cb(vq);
+	spin_unlock_irqrestore(lock, flags);
+}
+
+/****************************************************************************
+ * Name: virtqueue_disable_cb_lock
+ ****************************************************************************/
+
+void virtqueue_disable_cb_lock(struct virtqueue *vq, spinlock_t *lock)
+{
+	irqstate_t flags;
+
+	if (vq != NULL && lock == &vq->lock) {
+		virtqueue_disable_cb(vq);
+		return;
+	}
+
+	flags = spin_lock_irqsave(lock);
+	virtqueue_disable_cb(vq);
+	spin_unlock_irqrestore(lock, flags);
+}
+
+/****************************************************************************
  * Name: virtqueue_get_buffer
  *
  * Description:
@@ -536,6 +704,27 @@ void *virtq_get_buffer_cookie(virtq_t *vq, uint32_t *len, uint16_t *idx)
 void *virtqueue_get_buffer(struct virtqueue *vq, uint32_t *len, uint16_t *idx)
 {
 	return virtq_get_buffer_cookie(vq, len, idx);
+}
+
+/****************************************************************************
+ * Name: virtqueue_get_buffer_lock
+ ****************************************************************************/
+
+void *virtqueue_get_buffer_lock(struct virtqueue *vq, uint32_t *len,
+				uint16_t *idx, spinlock_t *lock)
+{
+	irqstate_t flags;
+	void *cookie;
+
+	if (vq != NULL && lock == &vq->lock) {
+		return virtqueue_get_buffer(vq, len, idx);
+	}
+
+	flags = spin_lock_irqsave(lock);
+	cookie = virtqueue_get_buffer(vq, len, idx);
+	spin_unlock_irqrestore(lock, flags);
+
+	return cookie;
 }
 
 /****************************************************************************
@@ -552,6 +741,24 @@ void virtqueue_kick(struct virtqueue *vq)
 }
 
 /****************************************************************************
+ * Name: virtqueue_kick_lock
+ ****************************************************************************/
+
+void virtqueue_kick_lock(struct virtqueue *vq, spinlock_t *lock)
+{
+	irqstate_t flags;
+
+	if (vq != NULL && lock == &vq->lock) {
+		virtqueue_kick(vq);
+		return;
+	}
+
+	flags = spin_lock_irqsave(lock);
+	virtqueue_kick(vq);
+	spin_unlock_irqrestore(lock, flags);
+}
+
+/****************************************************************************
  * Name: virtq_kick
  *
  * Description:
@@ -561,11 +768,18 @@ void virtqueue_kick(struct virtqueue *vq)
 
 void virtq_kick(virtq_t *vq)
 {
+	virtqueue_notify_t notify;
+	void *notify_arg;
+
 	if (!vq || !vq->ready) {
 		return;
 	}
 
-	/* TODO: Notify the device (this would typically involve writing to a register) */
-	/* For now, we'll just log that kick was called */
-	// vdbg("Virtqueue kicked\n");
+	__sync_synchronize();
+
+	notify = vq->notify;
+	notify_arg = vq->notify_arg;
+	if (notify != NULL) {
+		notify(vq, notify_arg);
+	}
 }

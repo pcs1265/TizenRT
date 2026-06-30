@@ -334,6 +334,25 @@ void virtio_mmio_queue_notify(virtio_mmio_dev_t *dev, uint32_t queue_num)
 }
 
 /****************************************************************************
+ * Name: virtio_mmio_virtqueue_notify
+ *
+ * Description:
+ *   Virtqueue notify hook for the qemu-virt MMIO transport.
+ *
+ ****************************************************************************/
+
+void virtio_mmio_virtqueue_notify(struct virtqueue *vq, void *arg)
+{
+	virtio_mmio_dev_t *dev = (virtio_mmio_dev_t *)arg;
+
+	if (!vq || !dev || !dev->initialized) {
+		return;
+	}
+
+	virtio_mmio_queue_notify(dev, vq->vq_queue_index);
+}
+
+/****************************************************************************
  * Name: virtio_mmio_get_interrupt_status
  *
  * Description:

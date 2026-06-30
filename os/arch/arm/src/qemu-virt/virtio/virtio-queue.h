@@ -85,6 +85,12 @@ struct virtq_used {
 	// uint16_t avail_event;		/* Only if VIRTIO_F_EVENT_IDX */
 };
 
+struct virtio_device;
+struct virtqueue;
+
+typedef void (*vq_callback)(struct virtqueue *vq);
+typedef void (*virtqueue_notify_t)(struct virtqueue *vq, void *arg);
+
 /* Virtqueue structure */
 struct virtqueue {
 	struct virtq_desc *desc;	/* Descriptor table */
@@ -98,6 +104,15 @@ struct virtqueue {
 	uint16_t last_used_idx;		/* Last used index */
 	uint16_t free_head;		/* Next free descriptor slot */
 	uint16_t num_free;		/* Number of free descriptors */
+	uint16_t vq_nentries;		/* NuttX-compatible queue size */
+	uint16_t vq_queue_index;		/* NuttX-compatible queue index */
+	const char *vq_name;		/* NuttX-compatible queue name */
+	struct virtio_device *vq_dev;	/* NuttX-compatible parent device */
+	vq_callback callback;		/* Active used-buffer callback */
+	vq_callback callback_saved;	/* Callback restored by enable_cb */
+	virtqueue_notify_t notify;	/* Transport notify hook */
+	void *notify_arg;		/* Transport notify argument */
+	bool cb_enabled;		/* Callback enable state */
 	bool ready;			/* Queue ready status */
 	spinlock_t lock;		/* Spinlock for ISR-safe concurrent access */
 };
@@ -125,11 +140,25 @@ int virtq_add_buffer_cookie(virtq_t *vq, struct virtq_desc *descs,
 int virtq_get_buffer(virtq_t *vq, uint32_t *len);
 void *virtq_get_buffer_cookie(virtq_t *vq, uint32_t *len, uint16_t *idx);
 void virtq_kick(virtq_t *vq);
+uint16_t virtqueue_nused(struct virtqueue *vq);
+void virtqueue_enable_cb(struct virtqueue *vq);
+void virtqueue_disable_cb(struct virtqueue *vq);
+void virtqueue_enable_cb_lock(struct virtqueue *vq, spinlock_t *lock);
+void virtqueue_disable_cb_lock(struct virtqueue *vq, spinlock_t *lock);
+void virtqueue_set_callback(struct virtqueue *vq, vq_callback callback);
+void virtqueue_set_notify(struct virtqueue *vq, virtqueue_notify_t notify,
+			  void *arg);
 int virtqueue_add_buffer(struct virtqueue *vq, struct virtqueue_buf *buf_list,
 			 int readable, int writable, void *cookie);
+int virtqueue_add_buffer_lock(struct virtqueue *vq,
+			      struct virtqueue_buf *buf_list, int readable,
+			      int writable, void *cookie, spinlock_t *lock);
 void *virtqueue_get_buffer(struct virtqueue *vq, uint32_t *len,
 			   uint16_t *idx);
+void *virtqueue_get_buffer_lock(struct virtqueue *vq, uint32_t *len,
+				uint16_t *idx, spinlock_t *lock);
 void virtqueue_kick(struct virtqueue *vq);
+void virtqueue_kick_lock(struct virtqueue *vq, spinlock_t *lock);
 
 #undef EXTERN
 #ifdef __cplusplus

@@ -245,6 +245,10 @@ int virtio_blk_init(virtio_blk_dev_t *dev, uint32_t device_num)
 		return ret;
 	}
 
+	dev->vq.vq_queue_index = 0;
+	virtqueue_set_notify(&dev->vq, virtio_mmio_virtqueue_notify,
+			      &dev->mmio_dev);
+
 	/* Register queue with MMIO device */
 
 	if (dev->mmio_dev.version >= 2) {
@@ -406,7 +410,6 @@ int virtio_blk_read(virtio_blk_dev_t *dev, uint64_t sector, void *buffer, size_t
 	 */
 
 	virtq_kick(&dev->vq);
-	virtio_mmio_queue_notify(&dev->mmio_dev, 0);
 
 	/* Wait for the interrupt handler to signal completion */
 
@@ -497,7 +500,6 @@ int virtio_blk_write(virtio_blk_dev_t *dev, uint64_t sector, const void *buffer,
 	/* Notify the device via the MMIO queue notify register */
 
 	virtq_kick(&dev->vq);
-	virtio_mmio_queue_notify(&dev->mmio_dev, 0);
 
 	/* Wait for the interrupt handler to signal completion */
 
