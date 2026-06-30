@@ -56,4 +56,91 @@ config QEMU_VIRT_VIRTIO_NET_RX_BUFS
 	help
 	  Number of receive buffers posted to the virtio-net RX queue.
 
+config QEMU_VIRT_VIRTIO_SERIAL
+	bool "Virtio serial device support"
+	default n
+	depends on STANDARD_SERIAL
+	help
+	  Enable virtio-serial support for the QEMU virt machine. The driver
+	  registers a TinyAra serial device backed by QEMU's virtio-mmio
+	  transport. The initial implementation supports the default single
+	  virtio-console port.
+
+config QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM
+	int "Virtio serial MMIO device number"
+	default 2 if QEMU_VIRT_VIRTIO_BLK && QEMU_VIRT_VIRTIO_NET
+	default 1 if QEMU_VIRT_VIRTIO_BLK || QEMU_VIRT_VIRTIO_NET
+	default 0
+	depends on QEMU_VIRT_VIRTIO_SERIAL
+	help
+	  The virtio-mmio bus slot used by virtio-serial. If virtio-blk and
+	  virtio-net are also enabled, slots 0 and 1 are usually occupied, so
+	  the serial device defaults to slot 2.
+
+config QEMU_VIRT_VIRTIO_SERIAL_NAME
+	string "Virtio serial device name"
+	default "ttyV0"
+	depends on QEMU_VIRT_VIRTIO_SERIAL
+	help
+	  Device node name registered under /dev for the virtio-serial port.
+
+config QEMU_VIRT_VIRTIO_SERIAL_CONSOLE
+	bool "Use virtio serial as the system console"
+	default n
+	depends on QEMU_VIRT_VIRTIO_SERIAL
+	help
+	  Register the first virtio-serial port as /dev/console. Leave this
+	  disabled when the PL011 UART remains the system console.
+
+config QEMU_VIRT_VIRTIO_SERIAL_BUFSIZE
+	int "Virtio serial buffer size"
+	default 256
+	range 16 4096
+	depends on QEMU_VIRT_VIRTIO_SERIAL
+	help
+	  Size of the TinyAra serial RX/TX buffers and the posted virtio RX
+	  buffer for the virtio-serial port.
+
+config QEMU_VIRT_VIRTIO_SERIAL_CHAR
+	bool "Virtio serial bulk character device"
+	default n
+	help
+	  Enable a write-only character device backed directly by a
+	  virtio-console transport. This bypasses the TinyAra serial upper
+	  half and is intended for bulk guest-to-host streams.
+
+config QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM
+	int "Virtio serial bulk character MMIO device number"
+	default 3 if QEMU_VIRT_VIRTIO_BLK && QEMU_VIRT_VIRTIO_NET && QEMU_VIRT_VIRTIO_SERIAL
+	default 2 if QEMU_VIRT_VIRTIO_BLK && QEMU_VIRT_VIRTIO_NET
+	default 2 if QEMU_VIRT_VIRTIO_BLK && QEMU_VIRT_VIRTIO_SERIAL
+	default 2 if QEMU_VIRT_VIRTIO_NET && QEMU_VIRT_VIRTIO_SERIAL
+	default 1 if QEMU_VIRT_VIRTIO_BLK || QEMU_VIRT_VIRTIO_NET || QEMU_VIRT_VIRTIO_SERIAL
+	default 0
+	depends on QEMU_VIRT_VIRTIO_SERIAL_CHAR
+	help
+	  The virtio-mmio bus slot used by the bulk character stream.
+
+config QEMU_VIRT_VIRTIO_SERIAL_CHAR_NAME
+	string "Virtio serial bulk character device name"
+	default "vport0"
+	depends on QEMU_VIRT_VIRTIO_SERIAL_CHAR
+	help
+	  Device node name registered under /dev for the bulk stream.
+
+config QEMU_VIRT_VIRTIO_SERIAL_CHAR_CHUNK_SIZE
+	int "Virtio serial bulk character chunk size"
+	default 16384
+	range 512 65536
+	depends on QEMU_VIRT_VIRTIO_SERIAL_CHAR
+	help
+	  Size of each transmit chunk queued to the virtqueue.
+
+config QEMU_VIRT_VIRTIO_SERIAL_CHAR_CHUNKS
+	int "Virtio serial bulk character chunks"
+	default 16
+	range 2 64
+	depends on QEMU_VIRT_VIRTIO_SERIAL_CHAR
+	help
+	  Number of transmit chunks that may be queued or in flight.
 endif # QEMU_VIRT_VIRTIO

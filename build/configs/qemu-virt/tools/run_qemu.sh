@@ -52,6 +52,28 @@ if [ "${QEMU_VIRT_VIRTIO_NET}" == "y" ]; then
 else
     QEMU_NET_OPTION="-net none"
 fi
+
+QEMU_VIRT_VIRTIO_SERIAL=$(get_config_value "CONFIG_QEMU_VIRT_VIRTIO_SERIAL")
+if [ "${QEMU_VIRT_VIRTIO_SERIAL}" == "y" ]; then
+    QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM=$(get_config_value "CONFIG_QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM")
+    if [ -z "${QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM}" ]; then
+        QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM=0
+    fi
+    echo "VIRTIO_SERIAL enabled on virtio-mmio-bus.${QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM}"
+    echo "VIRTIO_SERIAL host endpoint: tcp:127.0.0.1:4556"
+    QEMU_VIRT_VIRTIO_SERIAL_OPTION="-device virtio-serial-device,bus=virtio-mmio-bus.${QEMU_VIRT_VIRTIO_SERIAL_DEVICE_NUM} -chardev socket,id=virtser0,host=127.0.0.1,port=4556,server=on,wait=off -device virtconsole,chardev=virtser0"
+fi
+
+QEMU_VIRT_VIRTIO_SERIAL_CHAR=$(get_config_value "CONFIG_QEMU_VIRT_VIRTIO_SERIAL_CHAR")
+if [ "${QEMU_VIRT_VIRTIO_SERIAL_CHAR}" == "y" ]; then
+    QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM=$(get_config_value "CONFIG_QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM")
+    if [ -z "${QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM}" ]; then
+        QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM=0
+    fi
+    echo "VIRTIO_SERIAL_CHAR enabled on virtio-mmio-bus.${QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM}"
+    echo "VIRTIO_SERIAL_CHAR host endpoint: tcp:127.0.0.1:4557"
+    QEMU_VIRT_VIRTIO_SERIAL_CHAR_OPTION="-device virtio-serial-device,bus=virtio-mmio-bus.${QEMU_VIRT_VIRTIO_SERIAL_CHAR_DEVICE_NUM} -chardev socket,id=virtchar0,host=127.0.0.1,port=4557,server=on,wait=off -device virtconsole,chardev=virtchar0"
+fi
 # cp ./build/output/bin/tinyara.bin ./tinyara.bin
 
 # -serial tcp::4555,server,nowait \
@@ -71,6 +93,8 @@ ${QEMU_NET_OPTION} \
 -mon chardev=con,mode=readline \
 -drive if=pflash,format=raw,file=${PFLASH_IMAGE} \
 ${QEMU_VIRT_VIRTIO_BLK_OPTION} \
+${QEMU_VIRT_VIRTIO_SERIAL_OPTION} \
+${QEMU_VIRT_VIRTIO_SERIAL_CHAR_OPTION} \
 -s \
 ${SMP_OPTION} \
 $@ \
