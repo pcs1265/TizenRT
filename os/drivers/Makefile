@@ -88,6 +88,7 @@ include os_api_test$(DELIM)Make.defs
 include lcd$(DELIM)Make.defs
 include lwnl${DELIM}Make.defs
 include mipidsi${DELIM}Make.defs
+include note$(DELIM)Make.defs
 include net$(DELIM)Make.defs
 include otp$(DELIM)Make.defs
 include pipes$(DELIM)Make.defs

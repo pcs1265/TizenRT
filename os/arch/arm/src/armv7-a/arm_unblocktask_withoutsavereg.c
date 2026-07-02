@@ -104,7 +104,8 @@
  ****************************************************************************/
 void up_unblock_task_without_savereg(struct tcb_s *tcb)
 {
-	struct tcb_s *rtcb;
+	struct tcb_s *rtcb = this_task();
+
 
 	/* Remove the task from the blocked task list */
 	dq_rem((FAR dq_entry_t *)tcb, (dq_queue_t *)g_tasklisttable[tcb->task_state].list);
@@ -159,6 +160,8 @@ void up_unblock_task_without_savereg(struct tcb_s *tcb)
 			save_task_scheduling_status(nexttcb);
 #endif
 			/* Then switch contexts */
+			sched_note_suspend(rtcb);
+			sched_note_resume(tcb);
 
 			arm_fullcontextrestore(nexttcb->xcp.regs);
 		}

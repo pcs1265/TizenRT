@@ -234,7 +234,7 @@ int task_terminate(pid_t pid, bool nonblocking)
 	 */
 
 	task_exithook(dtcb, EXIT_SUCCESS, nonblocking);
-
+	sched_note_stop(dtcb);
 	/* Deallocate its TCB */
 
 	return sched_releasetcb(dtcb, dtcb->flags & TCB_FLAG_TTYPE_MASK);

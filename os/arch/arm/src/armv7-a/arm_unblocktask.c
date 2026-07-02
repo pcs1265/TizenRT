@@ -137,6 +137,8 @@ void up_unblock_task(struct tcb_s *tcb)
 			/* Save the task name which will be scheduled */
 			save_task_scheduling_status(nexttcb);
 #endif
+			sched_note_suspend(rtcb);
+  			sched_note_resume(nexttcb);
 
 			/* Update scheduler parameters */
 
@@ -147,7 +149,6 @@ void up_unblock_task(struct tcb_s *tcb)
 			 */
 
 			arm_switchcontext(&rtcb->xcp.regs, nexttcb->xcp.regs);
-
 			/* arm_switchcontext forces a context switch to the task at the
 			 * head of the ready-to-run list.  It does not 'return' in the
 			 * normal sense.  When it does return, it is because the blocked

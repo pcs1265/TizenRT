@@ -66,6 +66,7 @@
 #include <tinyara/debug/sysdbg.h>
 #endif
 
+#include <tinyara/sched_note.h>
 /****************************************************************************
  * Definitions
  ****************************************************************************/
@@ -126,7 +127,19 @@ void irq_dispatch(int irq, FAR void *context)
 	save_irq_scheduling_status(irq, (void *)vector);
 #endif
 
+#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
+  /* Notify that we are entering into the interrupt handler */
+
+  sched_note_irqhandler(irq, vector, true);
+#endif
+
 	/* Then dispatch to the interrupt handler */
 
 	vector(irq, context, arg);
+
+#ifdef CONFIG_SCHED_INSTRUMENTATION_IRQHANDLER
+  /* Notify that we are leaving from the interrupt handler */
+
+  sched_note_irqhandler(irq, vector, false);
+#endif
 }

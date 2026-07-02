@@ -158,6 +158,7 @@ void _exit(int status)
 	 * task is started.
 	 */
 	sllvdbg("TCB=%p exiting\n", this_task());
+	sched_note_suspend(this_task());
 
 #if defined(CONFIG_DUMP_ON_EXIT) && defined(CONFIG_DEBUG)
 	sllvdbg("Other tasks:\n");
@@ -190,6 +191,7 @@ void _exit(int status)
 	/*Save the task name which will be scheduled */
 	save_task_scheduling_status(tcb);
 #endif
+  	sched_note_resume(tcb);
 
 	sched_resume_scheduler(tcb);
 

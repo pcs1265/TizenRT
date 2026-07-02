@@ -206,7 +206,7 @@ int task_exit(void)
 	 */
 
 	(void)sched_removereadytorun(dtcb);
-
+  	sched_note_stop(dtcb);
 	/* If there are any pending tasks, then add them to the ready-to-run
 	 * task list now
 	 */

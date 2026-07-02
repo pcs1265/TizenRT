@@ -1,0 +1,142 @@
+print_dataabort_detail: #########################################################################
+print_dataabort_detail: PANIC!!! Data Abort at instruction : 0x0e080c98
+print_dataabort_detail: PC: 0e080c98 DFAR: 00000000 DFSR: 0000080d
+print_dataabort_detail: #########################################################################
+
+
+
+security level: 0
+===========================================================
+Assertion details
+===========================================================
+Assertion failed CPU0 at file: armv7-a/arm_dataabort.c line 218 task: tash pid: 17
+print_assert_detail: Assert location (PC) : 0x0e080c98
+check_assert_location: Code asserted in normal thread!
+===========================================================
+Asserted task's stack details
+===========================================================
+check_sp_corruption: Current SP is User Thread SP: 60286050
+check_sp_corruption: User stack:
+print_stack_dump:   base: 60286810
+print_stack_dump:   size: 00000ff0
+print_stack_dump:   used: 00000a5c
+up_stackdump: 60286040: xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286060: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286080: 00000000 6013e470 6000005f 00000400 00000006 6013e470 6000005f 0e047999
+up_stackdump: 602860a0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 602860c0: deadbeef deadbeef deadbeef 0e020681 0e020efd 00000000 60286278 000003ff
+up_stackdump: 602860e0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286100: deadbeef deadbeef 00000007 00000004 00000007 00000000 00000010 deadbeef
+up_stackdump: 60286120: 00000310 60100000 00001131 00000000 60286278 00000400 00000007 00000007
+up_stackdump: 60286140: 6028537c 00000006 0e180c23 6028537c 00000001 6028673c 6013e484 60286270
+up_stackdump: 60286160: 0e16eab7 0e000ae5 2000007f 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286180: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602861a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602861c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602861e0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286200: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286220: 00000000 00000000 60286278 00000400 00000006 0e180c23 6028537c 00000001
+up_stackdump: 60286240: 6028673c 0e03dfcb 00000007 6013c780 00000007 00000007 6028537c 0e000afb
+up_stackdump: 60286260: 00000007 00000007 6028537c 0e16eab7 00000002 0e16eab7 deadbe00 deadbeef
+up_stackdump: 60286280: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 602862a0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 602862c0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 602862e0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286300: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286320: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286340: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286360: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286380: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 602863a0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 602863c0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 602863e0: deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef deadbeef
+up_stackdump: 60286400: deadbeef deadbeef deadbeef 00000011 00000001 00000011 00000001 00000011
+up_stackdump: 60286420: 80000000 00000011 60105e58 00000011 602855f0 6028537c 60285614 60285614
+up_stackdump: 60286440: 00000001 00000008 60286648 0000000a 60286648 0e01f92d 6028656c 0e169aa5
+up_stackdump: 60286460: 0e1698d6 20000070 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286480: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602864a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602864c0: 60105e4c 00000000 00000009 6028537c 00000024 60286644 00000006 00000001
+up_stackdump: 602864e0: 602895e0 00000018 00000000 0e01fc87 00000000 60286660 00000000 00000011
+up_stackdump: 60286500: 60105e58 00000000 60105e58 00000000 60105a10 00000000 60105e4c 00000000
+up_stackdump: 60286520: 00000009 6028537c 602855f2 602855f2 00000001 00000002 6028537c 00000001
+up_stackdump: 60286540: 6028673c 0e01fc87 6028665c 0e169ad1 0e170a14 00000070 00000000 00000000
+up_stackdump: 60286560: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286580: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602865a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602865c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602865e0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286600: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286620: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286640: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 0e169ad1
+up_stackdump: 60286660: 6028537c 0e16a3a1 0000000a 0e180a21 0e180a11 6028537c 00000002 00000001
+up_stackdump: 60286680: 60286738 00000006 00000002 0e16e935 00000000 00000000 00000000 00000000
+up_stackdump: 602866a0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602866c0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 602866e0: 00000000 60286738 00000005 00000001 60780010 00000002 602895e0 00000018
+up_stackdump: 60286700: 00000000 0e16af15 60286738 00000002 6013e420 0e17df80 6028682a 00000001
+up_stackdump: 60286720: 00000000 00000000 00000000 00000000 00000002 0e16b53d 60286820 60286826
+up_stackdump: 60286740: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+up_stackdump: 60286760: 00000000 00000000 00000000 00000000 60286820 0e16b413 602867a4 00000000
+up_stackdump: 60286780: 00000000 00000000 00000000 00000008 00000008 00000000 00000001 00000000
+up_stackdump: 602867a0: 0000000b 00000006 00000000 00000008 00000000 00000000 00000000 00000003
+up_stackdump: 602867c0: 60286820 60780704 0e17e05a 00000000 00000000 00000000 00000000 0e16b6df
+up_stackdump: 602867e0: 60285810 0e16b665 00000001 60285810 00000000 0e169a19 60285810 0e019881
+up_stackdump: 60286800: 00000000 00000000 00000000 00000000 80001010 0e16b231 00000011 00000090
+===========================================================
+Asserted task's TCB info 
+===========================================================
+task_show_tcbinfo: State       : 4
+task_show_tcbinfo: Flags       : 1056
+task_show_tcbinfo: Lock count  : 0
+task_show_tcbinfo: Timeslice   : 9
+task_show_tcbinfo: Waitdog     : 0
+task_show_tcbinfo: WaitSem     : 0
+task_show_tcbinfo: MsgwaitQ    : 0
+task_show_tcbinfo: Sigdeliver  : 0
+task_show_tcbinfo: Nsyscalls   : 1
+task_show_tcbinfo: Syscall 0   : 0xe1709ae
+===========================================================
+Asserted task's register dump
+===========================================================
+arm_registerdump: R0: 00000358 00000000 000003e8 00189dca 60286120 602860cc 00000000 00000006
+arm_registerdump: R8: 601026ec 0e097daf 0e097d42 0e097d12 0e01fb8b 60286050 0e04789f 0e080c98
+arm_registerdump: CPSR: 6000007f
+===========================================================
+List of all tasks in the system
+===========================================================
+                          NAME |   PID |  PRI |    USED / TOTAL STACK | STACK ALLOC ADDR | TCB ADDR | TASK STATE
+-------------------------------------------------------------------------------------------------------------------
+                     Idle Task |     0 |    0 |     684 /    1024 |       0x6011c5b0 | 0x601054fc |          2
+                        hpwork |     1 |  201 |     476 /    2032 |       0x60125a90 | 0x60124df0 |          8
+                        lpwork |     2 |   50 |     476 /    4080 |       0x60126f40 | 0x601262a0 |          8
+                  km4_log_task |     4 |  200 |     756 /    2008 |       0x6012a0e0 | 0x60129440 |          9
+               inic_msg_q_task |     5 |  107 |     460 /    4048 |       0x60136c80 | 0x60135fe0 |          6
+          inic_host_rx_tasklet |     6 |  104 |     524 /    4048 |       0x601389b0 | 0x60137d10 |          6
+        inic_ipc_api_host_task |     7 |  103 |     484 /    8136 |       0x6013a6a0 | 0x60139a00 |          6
+                   LWIP_TCP/IP |     9 |  105 |     532 /    4072 |       0x601414b0 | 0x60140810 |          6
+          netmgr_event_handler |    10 |  100 |     412 /    2016 |       0x60143160 | 0x601424c0 |          6
+                      log_dump |    11 |  200 |     476 /   10216 |       0x601446e0 | 0x60143a40 |          9
+                binary_manager |    12 |  203 |     980 /    8168 |       0x60147b90 | 0x60146ef0 |          9
+                          app1 |    15 |  180 |     868 /    8168 |       0x60280a50 | 0x6014cd60 |          8
+                         uwork |    16 |  100 |     496 /    2032 |       0x60284b30 | 0x60128610 |          8
+                          tash |    17 |  125 |    2764 /    4080 |       0x60285810 | 0x60128de0 |          4
+              wifi msg handler |    18 |  100 |     596 /    4064 |       0x60287060 | 0x60128ef0 |          6
+               ble msg handler |    19 |  100 |     596 /    4072 |       0x60288540 | 0x60129000 |          6
+-------------------------------------------------------------------------------------------------------------------
+===========================================================
+Loading location information
+===========================================================
+elf_show_all_bin_section_addr: [common] Text Addr : 0xe162010, Text Size : 3112960
+elf_show_all_bin_section_addr: [app1] Text Addr : 0xe45a030, Text Size : 1417216
+===========================================================
+Checking app 1 heap for corruption 
+===========================================================
+mm_check_heap_corruption: Heap start = 0x60280a30 end = 0x6077fff0
+mm_check_heap_corruption: No heap corruption detected
+===========================================================
+Checking kernel heap for corruption
+===========================================================
+mm_check_heap_corruption: Heap start = 0x6011c9c0 end = 0x6027fff0
+mm_check_heap_corruption: No heap corruption detected
+##########################################################################################################################################

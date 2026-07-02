@@ -56,11 +56,12 @@ int up_timerisr(int irq, uint32_t *regs)
 
     last_cycle = arm_arch_timer_compare();
 
-    if (arm_arch_timer_count() < last_cycle) {
-      return -1;
-    } else {
-      delta_ticks = (uint32_t)((arm_arch_timer_count() - last_cycle) / pdTICKS_TO_CNT) + 1;
-    }
+    // if (arm_arch_timer_count() < last_cycle) {
+    //   return -1;
+    // } else {
+    //   delta_ticks = (uint32_t)((arm_arch_timer_count() - last_cycle) / pdTICKS_TO_CNT) + 1;
+    // }
+    delta_ticks = 1;
 
     u32 ticks_to_process = delta_ticks;
     while (ticks_to_process > 0) {

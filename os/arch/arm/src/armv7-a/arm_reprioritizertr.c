@@ -182,7 +182,8 @@ void up_reprioritize_rtr(struct tcb_s *tcb, uint8_t priority)
 				 */
 
 				arm_switchcontext(&rtcb->xcp.regs, nexttcb->xcp.regs);
-
+				sched_note_suspend(rtcb);
+				sched_note_resume(nexttcb);
 				/* arm_switchcontext forces a context switch to the task at the
 				 * head of the ready-to-run list.  It does not 'return' in the
 				 * normal sense.  When it does return, it is because the

@@ -145,7 +145,8 @@ void up_schedyield(void)
 			save_task_scheduling_status(ntcb);
 #endif
 			arm_switchcontext((uint32_t **) rtcb->xcp.regs, ntcb->xcp.regs);
-
+			sched_note_suspend(rtcb);
+  			sched_note_resume(ntcb);
 			/* up_switchcontext forces a context switch to the task at the
 			 * head of the ready-to-run list.  It does not 'return' in the
 			 * normal sense.  When it does return, it is because the blocked

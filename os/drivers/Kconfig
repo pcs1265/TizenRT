@@ -588,3 +588,5 @@ config OTP_NULL
 endif
 
 source drivers/seclink/Kconfig
+
+source drivers/note/Kconfig

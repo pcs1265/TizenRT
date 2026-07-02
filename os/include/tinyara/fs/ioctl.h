@@ -104,6 +104,8 @@
 #define _THERMALBASE	(0x2900)	/* thermal camera control ioctl commands */
 #define _COMPBASE       (0x2a00)	/* compress ioctl commands */
 #define _PMBASE         (0x2b00)    	/* pm ioctl commands */
+#define _NOTECTLBASE    (0x2c00) /* Note filter control ioctl commands*/
+#define _NOTERAMBASE    (0x2d00) /* Noteram device ioctl commands*/
 #define _TESTIOCBASE    (0xfe00)	/* KERNEL TEST DRV module ioctl commands */
 #define _MIPIDSIBASE    (0x3900) 	/* Mipidsi device ioctl commands */
 #define _CSIIOCBASE     (0x3a00) 	/* Wifi CSI ioctl commands */
@@ -513,6 +515,16 @@
 
 #define _LWNLIOCVALID(c) (_IOC_TYPE(c) == _LWNLIOCBASE)
 #define _LWNLIOC(nr)     _IOC(_LWNLIOCBASE, nr)
+
+/* Notectl drivers **********************************************************/
+
+#define _NOTECTLIOCVALID(c) (_IOC_TYPE(c) == _NOTECTLBASE)
+#define _NOTECTLIOC(nr)     _IOC(_NOTECTLBASE, nr)
+
+/* Noteram drivers **********************************************************/
+
+#define _NOTERAMIOCVALID(c) (_IOC_TYPE(c) == _NOTERAMBASE)
+#define _NOTERAMIOC(nr)     _IOC(_NOTERAMBASE, nr)
 
 /****************************************************************************
  * Public Type Definitions

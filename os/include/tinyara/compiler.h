@@ -117,6 +117,9 @@
 
 #define packed_struct __attribute__ ((packed))
 
+#  define begin_packed_struct
+#  define end_packed_struct __attribute__((packed))
+
 /* GCC does not support the reentrant attribute */
 
 #define reentrant_function
@@ -134,6 +137,32 @@
 
 #define inline_function __attribute__ ((always_inline, no_instrument_function))
 #define noinline_function __attribute__ ((noinline))
+
+
+#  define noinstrument_function __attribute__((no_instrument_function))
+
+/* The no_profile_instrument_function attribute on functions is used to
+ * inform the compiler that it should not process any profile feedback
+ * based optimization code instrumentation.
+ */
+
+#  define noprofile_function __attribute__((no_profile_instrument_function))
+
+/* Some versions of GCC have a separate __syslog__ format.
+ * http://mail-index.netbsd.org/source-changes/2015/10/14/msg069435.html
+ * Use it if available. Otherwise, assume __printf__ accepts %m.
+ */
+
+#  if !defined(__syslog_attribute__)
+#    define __syslog__ __printf__
+#  endif
+
+#  define format_like(a) __attribute__((__format_arg__(a)))
+#  define printf_like(a, b) __attribute__((__format__(__printf__, a, b)))
+#  define syslog_like(a, b) __attribute__((__format__(__syslog__, a, b)))
+#  define scanf_like(a, b) __attribute__((__format__(__scanf__, a, b)))
+#  define strftime_like(a) __attribute__((__format__(__strftime__, a, 0)))
+#  define object_size(o, t) __builtin_object_size(o, t)
 
 /* GCC has does not use storage classes to qualify addressing */
 

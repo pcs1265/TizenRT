@@ -157,6 +157,10 @@ void up_initialize(void)
 
 #if CONFIG_NFILE_DESCRIPTORS > 0
 
+#if defined(CONFIG_DRIVERS_NOTE)
+  	note_initialize();    		/* /dev/note */
+#endif
+
 #if defined(CONFIG_DEV_NULL)
 	devnull_register();			/* Standard /dev/null */
 #endif

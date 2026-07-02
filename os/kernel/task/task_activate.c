@@ -116,6 +116,26 @@
 int task_activate(FAR struct tcb_s *tcb)
 {
 	irqstate_t flags = enter_critical_section();
+#ifdef CONFIG_SCHED_INSTRUMENTATION
+
+  /* Check if this is really a re-start */
+
+  if (tcb->task_state != TSTATE_TASK_INACTIVE)
+    {
+      /* Inform the instrumentation layer that the task
+       * has stopped
+       */
+
+      sched_note_stop(tcb);
+    }
+
+  /* Inform the instrumentation layer that the task
+   * has started
+   */
+
+  sched_note_start(tcb);
+#endif
+
 #ifndef CONFIG_DISABLE_SIGNALS
 	int ret;
 	struct sigaction act;

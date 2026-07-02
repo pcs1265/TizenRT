@@ -37,6 +37,10 @@ void net_register_appcmds(void);
 void stkmon_logging(struct tcb_s *);
 #endif
 
+#ifdef CONFIG_SYSTEM_TRACE
+int trace_main(int argc, FAR char *argv[]);
+#endif
+
 #if defined(CONFIG_ENABLE_CPULOAD)
 int utils_cpuload(int argc, char **args);
 #endif

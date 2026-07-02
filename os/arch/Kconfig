@@ -13,6 +13,7 @@ config ARCH_ARM
 	select ARCH_HAVE_VFORK
 	select ARCH_HAVE_STACKCHECK
 	select ARCH_HAVE_CUSTOMOPT
+	select ARCH_HAVE_SYSCALL_HOOKS
 	---help---
 		The ARM architectures
 
@@ -143,6 +144,14 @@ config ARCH_USE_MMU
 config ARCH_HAVE_FETCHADD
         bool
         default n
+
+config ARCH_HAVE_SYSCALL_HOOKS
+	bool
+	default n
+	---help---
+		Indicates that the architecture supports the system call hooks as
+		required if CONFIG_SCHED_INSTRUMENTATION_SYSCALL is enabled.  Refer
+		to sched/Kconfig for additional information.
 
 config ARCH_USE_MPU
 	bool "Enable MPU"
