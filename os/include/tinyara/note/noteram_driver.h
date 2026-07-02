@@ -31,6 +31,7 @@
 #include <tinyara/fs/ioctl.h>
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 /****************************************************************************
@@ -54,6 +55,10 @@
  * NOTERAM_SETREADMODE
  *              - Set read mode
  *                Argument: A read-only pointer to unsigned int
+ * NOTERAM_GETTASKNAMES
+ *              - Get a snapshot of known PID/task-name mappings
+ *                Argument: A writable pointer to struct
+ *                          noteram_taskname_list_s
  */
 
 #ifdef CONFIG_DRIVERS_NOTERAM
@@ -62,6 +67,7 @@
 #define NOTERAM_SETMODE         _NOTERAMIOC(0x03)
 #define NOTERAM_GETREADMODE     _NOTERAMIOC(0x04)
 #define NOTERAM_SETREADMODE     _NOTERAMIOC(0x05)
+#define NOTERAM_GETTASKNAMES    _NOTERAMIOC(0x06)
 #endif
 
 /* Overwrite mode definitions */
@@ -73,11 +79,35 @@
 
 #define NOTERAM_MODE_READ_ASCII             0
 #define NOTERAM_MODE_READ_BINARY            1
+
+#if CONFIG_TASK_NAME_SIZE > 0
+#  define NOTERAM_TASKNAME_SIZE (CONFIG_TASK_NAME_SIZE + 1)
+#else
+#  define NOTERAM_TASKNAME_SIZE 16
+#endif
+
+#define NOTERAM_TASKNAME_MAX (CONFIG_MAX_TASKS * 2)
 #endif
 
 /****************************************************************************
  * Public Types
  ****************************************************************************/
+
+#ifdef CONFIG_DRIVERS_NOTERAM
+struct noteram_taskname_entry_s
+{
+  pid_t pid;
+  char name[NOTERAM_TASKNAME_SIZE];
+};
+
+struct noteram_taskname_list_s
+{
+  uint32_t frequency;
+  uint16_t count;
+  uint16_t capacity;
+  struct noteram_taskname_entry_s entries[NOTERAM_TASKNAME_MAX];
+};
+#endif
 
 struct noteram_driver_s;
 

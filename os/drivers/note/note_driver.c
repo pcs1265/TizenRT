@@ -2132,6 +2132,67 @@ FAR char *note_get_taskname(pid_t pid, FAR char *buf, size_t len)
 }
 
 /****************************************************************************
+ * Name: note_foreach_taskname
+ ****************************************************************************/
+
+struct note_taskname_foreach_s
+{
+  note_taskname_handler_t handler;
+  FAR void *arg;
+};
+
+static void note_foreach_live_task(FAR struct tcb_s *tcb, FAR void *arg)
+{
+  FAR struct note_taskname_foreach_s *ctx = arg;
+
+#if CONFIG_TASK_NAME_SIZE > 0
+  ctx->handler(tcb->pid, tcb->name, ctx->arg);
+#else
+  ctx->handler(tcb->pid, "<noname>", ctx->arg);
+#endif
+}
+
+void note_foreach_taskname(note_taskname_handler_t handler, FAR void *arg)
+{
+  struct note_taskname_foreach_s ctx;
+
+  DEBUGASSERT(handler != NULL);
+
+  ctx.handler = handler;
+  ctx.arg = arg;
+  sched_foreach(note_foreach_live_task, &ctx);
+
+#if CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE > 0 && \
+    defined(CONFIG_SCHED_INSTRUMENTATION_SWITCH)
+  {
+    FAR struct note_taskname_info_s *ti;
+    irqstate_t flags;
+    int n;
+
+    flags = enter_critical_section();
+    n = g_note_taskname.tail;
+    while (n != g_note_taskname.head)
+      {
+        ti = (FAR struct note_taskname_info_s *)
+             &g_note_taskname.buffer[n];
+        if (ti->pid != INVALID_PROCESS_ID)
+          {
+            handler(ti->pid, ti->name, arg);
+          }
+
+        n += ti->size;
+        if (n >= CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE)
+          {
+            n -= CONFIG_DRIVERS_NOTE_TASKNAME_BUFSIZE;
+          }
+      }
+
+    leave_critical_section(flags);
+  }
+#endif
+}
+
+/****************************************************************************
  * Name: note_driver_register
  ****************************************************************************/
 

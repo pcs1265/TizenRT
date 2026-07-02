@@ -31,12 +31,20 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
 #include <errno.h>
 
 #include "trace.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define TRACE_RAW_MAGIC "TZNOTE01"
+#define TRACE_RAW_MAGIC_SIZE 8
 
 /****************************************************************************
  * Name: note_ioctl
@@ -57,6 +65,81 @@ static void note_ioctl(int cmd, unsigned long arg)
   close(notefd);
 }
 
+static int trace_write_u16(FAR FILE *out, uint16_t value)
+{
+  uint8_t data[2];
+
+  data[0] = value;
+  data[1] = value >> 8;
+  return fwrite(data, 1, sizeof(data), out) == sizeof(data) ? OK : ERROR;
+}
+
+static int trace_write_u32(FAR FILE *out, uint32_t value)
+{
+  uint8_t data[4];
+
+  data[0] = value;
+  data[1] = value >> 8;
+  data[2] = value >> 16;
+  data[3] = value >> 24;
+  return fwrite(data, 1, sizeof(data), out) == sizeof(data) ? OK : ERROR;
+}
+
+static int trace_write_binary_header(FAR FILE *out, int fd)
+{
+  FAR struct noteram_taskname_list_s *list;
+  size_t namelen;
+  int ret = ERROR;
+  int i;
+
+  list = calloc(1, sizeof(*list));
+  if (list == NULL)
+    {
+      fprintf(stderr, "trace: cannot allocate task-name snapshot\n");
+      return ERROR;
+    }
+
+  list->capacity = NOTERAM_TASKNAME_MAX;
+  if (ioctl(fd, NOTERAM_GETTASKNAMES, (unsigned long)list) < 0)
+    {
+      fprintf(stderr, "trace: cannot get task-name snapshot: %d\n", errno);
+      goto out;
+    }
+
+  if (fwrite(TRACE_RAW_MAGIC, 1, TRACE_RAW_MAGIC_SIZE, out) !=
+      TRACE_RAW_MAGIC_SIZE ||
+      trace_write_u32(out, list->frequency) < 0 ||
+      trace_write_u16(out, list->count) < 0 ||
+      trace_write_u16(out, NOTERAM_TASKNAME_SIZE) < 0)
+    {
+      goto out;
+    }
+
+  for (i = 0; i < list->count; i++)
+    {
+      namelen = strnlen(list->entries[i].name, NOTERAM_TASKNAME_SIZE);
+      if (trace_write_u16(out, (uint16_t)list->entries[i].pid) < 0 ||
+          fwrite(list->entries[i].name, 1, namelen, out) != namelen)
+        {
+          goto out;
+        }
+
+      while (namelen++ < NOTERAM_TASKNAME_SIZE)
+        {
+          if (fputc('\0', out) == EOF)
+            {
+              goto out;
+            }
+        }
+    }
+
+  ret = OK;
+
+out:
+  free(list);
+  return ret;
+}
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -69,9 +152,10 @@ static void note_ioctl(int cmd, unsigned long arg)
  *
  ****************************************************************************/
 
-int trace_dump(FAR FILE *out)
+int trace_dump(FAR FILE *out, bool binary)
 {
   uint8_t tracedata[1024];
+  unsigned int readmode;
   int ret;
   int fd;
 
@@ -81,6 +165,24 @@ int trace_dump(FAR FILE *out)
   if (fd < 0)
     {
       fprintf(stderr, "trace: cannot open /dev/note/ram\n");
+      return ERROR;
+    }
+
+  /* Select whether the driver returns formatted text or raw note bytes. */
+
+  readmode = binary ? NOTERAM_MODE_READ_BINARY : NOTERAM_MODE_READ_ASCII;
+  ret = ioctl(fd, NOTERAM_SETREADMODE, (unsigned long)&readmode);
+  if (ret < 0)
+    {
+      fprintf(stderr, "trace: cannot set note read mode: %d\n", errno);
+      close(fd);
+      return ERROR;
+    }
+
+  if (binary && trace_write_binary_header(out, fd) < 0)
+    {
+      fprintf(stderr, "trace: cannot write binary trace header\n");
+      close(fd);
       return ERROR;
     }
 

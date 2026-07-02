@@ -38,6 +38,7 @@
 
 #include <tinyara/spinlock.h>
 #include <tinyara/sched.h>
+#include <tinyara/clock.h>
 #include <tinyara/sched_note.h>
 #include <tinyara/kmalloc.h>
 #include <tinyara/note/note_driver.h>
@@ -131,6 +132,30 @@ static void
 noteram_dump_init_context(FAR struct noteram_dump_context_s *ctx);
 static int noteram_dump_one(FAR uint8_t *p, FAR struct lib_outstream_s *s,
                             FAR struct noteram_dump_context_s *ctx);
+
+static void noteram_add_taskname(pid_t pid, FAR const char *name,
+                                 FAR void *arg)
+{
+  FAR struct noteram_taskname_list_s *list = arg;
+  int i;
+
+  for (i = 0; i < list->count; i++)
+    {
+      if (list->entries[i].pid == pid)
+        {
+          return;
+        }
+    }
+
+  if (list->count >= list->capacity)
+    {
+      return;
+    }
+
+  list->entries[list->count].pid = pid;
+  strlcpy(list->entries[list->count].name, name, NOTERAM_TASKNAME_SIZE);
+  list->count++;
+}
 
 /****************************************************************************
  * Private Data
@@ -603,6 +628,34 @@ static int noteram_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
             FAR struct noteram_dump_context_s *ctx = filep->f_priv;
 
             ctx->mode = *(FAR unsigned int *)arg;
+            ret = OK;
+          }
+        break;
+
+      /* NOTERAM_GETTASKNAMES
+       *      - Get known PID/task-name mappings
+       *        Argument: A writable pointer to struct
+       *                  noteram_taskname_list_s
+       */
+
+      case NOTERAM_GETTASKNAMES:
+        if (arg == 0)
+          {
+            ret = -EINVAL;
+          }
+        else
+          {
+            FAR struct noteram_taskname_list_s *list =
+              (FAR struct noteram_taskname_list_s *)arg;
+
+            if (list->capacity > NOTERAM_TASKNAME_MAX)
+              {
+                list->capacity = NOTERAM_TASKNAME_MAX;
+              }
+
+            list->count = 0;
+            list->frequency = perf_getfreq();
+            note_foreach_taskname(noteram_add_taskname, list);
             ret = OK;
           }
         break;

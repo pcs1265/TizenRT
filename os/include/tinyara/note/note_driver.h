@@ -44,6 +44,9 @@
 
 struct note_driver_s;
 
+typedef void (*note_taskname_handler_t)(pid_t pid, FAR const char *name,
+                                        FAR void *arg);
+
 struct note_driver_ops_s
 {
   CODE void (*add)(FAR struct note_driver_s *drv,
@@ -196,6 +199,16 @@ int note_initialize(void);
  ****************************************************************************/
 
 FAR char *note_get_taskname(pid_t pid, FAR char *buf, size_t len);
+
+/****************************************************************************
+ * Name: note_foreach_taskname
+ *
+ * Description:
+ *   Visit the names of active tasks and recently terminated tasks.
+ *
+ ****************************************************************************/
+
+void note_foreach_taskname(note_taskname_handler_t handler, FAR void *arg);
 
 /****************************************************************************
  * Name: note_driver_register

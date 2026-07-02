@@ -57,7 +57,7 @@ extern "C"
  *
  ****************************************************************************/
 
-int trace_dump(FAR FILE *out);
+int trace_dump(FAR FILE *out, bool binary);
 
 /****************************************************************************
  * Name: trace_dump_clear
@@ -91,7 +91,7 @@ void trace_dump_set_overwrite(bool mode);
 
 #else /* CONFIG_DRIVERS_NOTERAM */
 
-#define trace_dump(type,out)
+#define trace_dump(out,binary)
 #define trace_dump_clear()
 #define trace_dump_get_overwrite()      0
 #define trace_dump_set_overwrite(mode)  (void)(mode)
