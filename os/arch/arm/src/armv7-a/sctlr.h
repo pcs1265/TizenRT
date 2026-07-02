@@ -867,6 +867,28 @@ static inline unsigned int cp15_pmu_rdccr(void)
 }
 
 /****************************************************************************
+ * Name: cp15_pmu_rdccr64
+ *
+ * Description:
+ *   Read the Performance Monitors Cycle Count Register (PMCCNTR) in 64-bit width
+ *
+ ****************************************************************************/
+
+static inline unsigned long long cp15_pmu_rdccr64(void)
+{
+	unsigned int lo;
+	unsigned int hi;
+	__asm__ __volatile__(
+		"\tmrrc p15, 0, %0, %1, c9\n"
+		: "=r" (lo), "=r" (hi)
+		:
+		: "memory"
+	);
+
+	return ((unsigned long long)hi << 32) | lo;
+}
+
+/****************************************************************************
  * Name: cp15_pmu_rdecr
  *
  * Description:

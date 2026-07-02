@@ -2480,6 +2480,32 @@ void relays_resetmodes(uint32_t relays_stat);
 void relays_powermodes(uint32_t relays_stat);
 #endif
 
+
+/****************************************************************************
+ * Name: up_perf_*
+ *
+ * Description:
+ *   The first interface simply provides the current time value in unknown
+ *   units.  NOTE:  This function may be called early before the timer has
+ *   been initialized.  In that event, the function should just return a
+ *   start time of zero.
+ *
+ *   Nothing is assumed about the units of this time value.  The following
+ *   are assumed, however: (1) The time is an unsigned integer value, (2)
+ *   the time is monotonically increasing, and (3) the elapsed time (also
+ *   in unknown units) can be obtained by subtracting a start time from
+ *   the current time.
+ *
+ *   The second interface simple converts an elapsed time into well known
+ *   units.
+ *
+ ****************************************************************************/
+
+void up_perf_init(FAR void *arg);
+clock_t up_perf_gettime(void);
+unsigned long up_perf_getfreq(void);
+void up_perf_convert(clock_t elapsed, FAR struct timespec *ts);
+
 /****************************************************************************
  * Debug interfaces exported by the architecture-specific logic
  ****************************************************************************/

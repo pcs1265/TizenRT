@@ -281,6 +281,12 @@ void arm_boot(void)
 
   amebasmart_setupmappings();
 
+#ifdef CONFIG_ARCH_PERF_EVENTS
+  /* Perf init */
+
+  up_perf_init(50000000);
+#endif
+
   /* Secondary core is already in disabled state during cold boot, no need
      to do any operation here
   */

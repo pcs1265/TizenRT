@@ -100,7 +100,7 @@
  *
  ********************************************************************************/
 
-int clock_ticks2time(int ticks, FAR struct timespec *reltime)
+int clock_ticks2time(clock_t ticks, FAR struct timespec *reltime)
 {
 	int remainder;
 
