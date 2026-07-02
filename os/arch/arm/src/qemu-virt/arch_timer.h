@@ -31,6 +31,16 @@
 #define __asm__ __asm
 #endif
 
+static inline uint32_t arm_timer_get_freq(void)
+{
+	uint32_t cntfrq;
+
+	__asm__ volatile("mrc p15, 0, %0, c14, c0, 0\n\t"
+					 : "=r"(cntfrq) : : "memory");
+
+	return cntfrq;
+}
+
 static inline void arm_arch_timer_set_compare(uint64_t val) /*write CNTV_CVAL: virtual timer CompareValue register*/
 {
 	__asm__ volatile("mcrr p15, 3, %Q0, %R0, c14\n\t"
