@@ -67,6 +67,7 @@
 #include <tinyara/irq.h>
 #include <tinyara/arch.h>
 #include <tinyara/serial/serial.h>
+#include <tinyara/spinlock.h>
 #ifdef CONFIG_PM
 #include <tinyara/pm/pm.h>
 #endif
@@ -511,6 +512,20 @@ static uart_dev_t g_uart4port = {
  * Private Functions
  ****************************************************************************/
 
+static void rtl8730e_log_intconfig(u32 interrupt, u32 state)
+{
+	irqstate_t flags;
+
+	/* RX and TX interrupt enables share LOGUART_UART_IER.  Serialize the
+	 * read-modify-write operation across CPUs so one path cannot restore a
+	 * stale value and clear the other path's interrupt enable.
+	 */
+
+	flags = spin_lock_irqsave(NULL);
+	LOGUART_INTConfig(LOGUART_DEV, interrupt, state);
+	spin_unlock_irqrestore(NULL, flags);
+}
+
 static u32 uart_index_get(PinName tx)
 {
 	if (IS_UART0_TX(tx)) {
@@ -714,9 +729,9 @@ static void rtl8730e_log_up_rxint(struct uart_dev_s *dev, bool enable)
 	DEBUGASSERT(priv);
 	priv->rxint_enable = enable;
 	if (enable) {
-		LOGUART_INTConfig(LOGUART_DEV, LOGUART_BIT_ERBI, ENABLE);
+		rtl8730e_log_intconfig(LOGUART_BIT_ERBI, ENABLE);
 	} else {
-		LOGUART_INTConfig(LOGUART_DEV, LOGUART_BIT_ERBI, DISABLE);
+		rtl8730e_log_intconfig(LOGUART_BIT_ERBI, DISABLE);
 	}
 }
 
@@ -774,10 +789,10 @@ static void rtl8730e_log_up_txint(struct uart_dev_s *dev, bool enable)
 	leave_critical_section(flags);
 #endif
 	if (enable) {
-		LOGUART_INTConfig(LOGUART_DEV, LOGUART_TX_EMPTY_PATH_4_INTR, ENABLE);
+		rtl8730e_log_intconfig(LOGUART_TX_EMPTY_PATH_4_INTR, ENABLE);
 		//LOGUART_RxCmd(LOGUART_DEV, ENABLE);
 	} else {
-		LOGUART_INTConfig(LOGUART_DEV, LOGUART_TX_EMPTY_PATH_4_INTR, DISABLE);
+		rtl8730e_log_intconfig(LOGUART_TX_EMPTY_PATH_4_INTR, DISABLE);
 		//LOGUART_RxCmd(LOGUART_DEV, DISABLE);
 	}
 }
@@ -1342,10 +1357,15 @@ int up_lowgetc(void)
 {
 	uint8_t rxd;
 #ifdef CONFIG_UART4_SERIAL_CONSOLE
-	u32 IrqEn = LOGUART_GetIMR();
+	irqstate_t flags;
+	u32 IrqEn;
+
+	flags = spin_lock_irqsave(NULL);
+	IrqEn = LOGUART_GetIMR();
 	LOGUART_SetIMR(0);
 	rxd = LOGUART_GetChar(_FALSE);
 	LOGUART_SetIMR(IrqEn);
+	spin_unlock_irqrestore(NULL, flags);
 #else
 	if (CONSOLE_DEV.isconsole == false)
 		return;
@@ -1449,5 +1469,3 @@ int up_getc(void)
 	return ch;
 }
 #endif							/* USE_SERIALDRIVER */
-
-
