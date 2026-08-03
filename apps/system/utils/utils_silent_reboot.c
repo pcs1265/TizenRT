@@ -16,13 +16,33 @@
  *
  ****************************************************************************/
 
-#include <TR_Utils/config.h>
+#include <tinyara/config.h>
+#include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <system/system.h>
-#include <system/system_silent_reboot.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <tinyara/silent_reboot.h>
+
+static int silent_reboot_request(int cmd, unsigned long arg)
+{
+	int fd;
+	int ret;
+
+	fd = open(SILENT_REBOOT_DRVPATH, O_RDWR);
+	if (fd < 0) {
+		printf("Failed to open %s\n", SILENT_REBOOT_DRVPATH);
+		return ERROR;
+	}
+
+	ret = ioctl(fd, cmd, arg);
+	close(fd);
+
+	return ret;
+}
 
 static void silent_reboot_show_usage(void)
 {
@@ -36,18 +56,19 @@ static void silent_reboot_show_usage(void)
 	printf("\n");
 }
 
-static void silent_reboot_show_status(void)
+static int silent_reboot_show_status(void)
 {
 	int days;
 	int hours;
 	int minutes;
 	int seconds;
-	system_result ret;
+	int ret;
 	silent_reboot_status_t status;
 
-	ret = system_silent_reboot_get_status(&status);
+	ret = silent_reboot_request(SILENTRBIOC_GETSTATUS, (unsigned long)(uintptr_t)&status);
 	if (ret < 0) {
 		printf("Failed to get silent reboot status\n");
+		return ERROR;
 	}
 
 	printf("======= Silent Reboot Status =======\n");
@@ -68,11 +89,13 @@ static void silent_reboot_show_status(void)
 	} else {
 		printf("Now periodic reboot time zone!!\n");
 	}
+
+	return OK;
 }
 
 int utils_silent_reboot(int argc, char **args)
 {
-	system_result ret;
+	int ret;
 
 	if (argc >= 2) {
 		if (!strncmp(args[1], "--help", strlen("--help") + 1)) {
@@ -81,14 +104,13 @@ int utils_silent_reboot(int argc, char **args)
 
 		if (!strncmp(args[1], "info", strlen("info") + 1)) {
 			/* Show silent reboot status */
-			silent_reboot_show_status();
-			return OK;
+			return silent_reboot_show_status();
 		}
 
 		if (!strncmp(args[1], "lock", strlen("lock") + 1)) {
 			/* Lock silent reboot */
-			ret = system_silent_reboot_lock();
-			if (ret == SYSTEM_SUCCESS) {
+			ret = silent_reboot_request(SILENTRBIOC_LOCK, 0);
+			if (ret == OK) {
 				printf("Silent reboot Locked\n");
 				return OK;
 			} else {
@@ -99,8 +121,8 @@ int utils_silent_reboot(int argc, char **args)
 
 		if (!strncmp(args[1], "unlock", strlen("lock") + 1)) {
 			/* Unlock silent reboot */
-			ret = system_silent_reboot_unlock();
-			if (ret == SYSTEM_SUCCESS) {
+			ret = silent_reboot_request(SILENTRBIOC_UNLOCK, 0);
+			if (ret == OK) {
 				printf("Silent reboot Unlocked\n");
 				return OK;
 			} else {
@@ -113,8 +135,8 @@ int utils_silent_reboot(int argc, char **args)
 			if (argc >= 3) {
 				int timeout = atoi(args[2]);
 				/* Delay silent reboot */
-				ret = system_silent_reboot_delay(timeout);
-				if (ret == SYSTEM_SUCCESS) {
+				ret = silent_reboot_request(SILENTRBIOC_DELAY, (unsigned long)timeout);
+				if (ret == OK) {
 					printf("Silent reboot Delayed for %d seconds\n", timeout);
 					return OK;
 				} else {
@@ -128,8 +150,8 @@ int utils_silent_reboot(int argc, char **args)
 			if (argc >= 3) {
 				int timeout = atoi(args[2]);
 				/* Force silent reboot regardless of the time if there is no lock after timeout. */
-				ret = system_silent_reboot_force_reboot(timeout);
-				if (ret == SYSTEM_SUCCESS) {
+				ret = silent_reboot_request(SILENTRBIOC_FORCE_REBOOT, (unsigned long)timeout);
+				if (ret == OK) {
 					printf("Silent reboot will be performed after %ds if there is no lock\n", timeout);
 					return OK;
 				} else {
