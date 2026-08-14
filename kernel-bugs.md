@@ -69,3 +69,24 @@ Build/reproduction remains blocked: `arm-none-eabi-gcc` is not installed, and no
 The official NuttX master was queried directly. Its condition-wait implementation uses a separate atomic waiter-count design and an uninterruptible semaphore wait, unlike TizenRT's ordinary `pthread_sem_take()` path. This supports the BUG-002 distinction but is not a TizenRT fix. The reviewed semaphore holder/recovery changes likewise were not marked fixed: no corresponding TizenRT fix commit was observed merged into `upstream/master` for either existing candidate.
 
 No source files on the user's worktree or on `feat/qemu-virt-gdb-awareness` were modified. No push or PR was performed.
+
+## Run: 2026-08-14 22:00 UTC monitor cycle
+
+- `git fetch --prune upstream origin`: exit 0; `upstream/master` remained `93cde68110a26df205ac4f0f536cff70699f1bc6`.
+- `qemu-virt_bughunt` remained a separate worktree at `d71b7f65c005d47a49549357196b469367f7f338`; the user's worktree and `feat/qemu-virt-gdb-awareness` were not changed.
+- The upstream scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task history was re-audited in actual files and commit diffs. No new upstream commit in those areas arrived since the previous ledger base, so no new BUG-ID was opened.
+- The apparent `&&` flag-check defect in the bughunt branch's copies of `sched_waitpid.c`, `sched_waitid.c`, `task_reparent.c`, and `task_setup.c` was checked against `e705013c1`. It is not a new unresolved TizenRT bug: `e705013c1` is an ancestor of `upstream/master`, and upstream/master contains the correct bitwise `&` checks. Per policy it is **fixed** because the fix is merged and present in upstream code.
+- `542d47be3` was also verified in upstream/master: the `waitpid()` child PID assignment is present. No additional child-status defect remained after the comparison.
+
+### Runtime evidence
+
+- `python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py`: passed.
+- `timeout 15s ./run_qemu.sh > /tmp/bughunt-20260814-003-qemu.log 2>&1`: exit 124; QEMU booted through S1 boot, kernel handoff, SMARTFS mount, and reached `TASH>>`.
+- The actual `run_qemu.sh` QEMU instance was attached with `gdb-multiarch` using the qemu-virt `auto_symbol_loader.py` and `tizenrt_gdb.py` tools. The commands `tizenrt current`, `tizenrt tasks`, `tizenrt stack`, `tizenrt waiters`, `tizenrt held`, and register inspection executed successfully. A matching bughunt ELF was absent, so the first session had no symbols; a user-worktree ELF was then used read-only and produced mismatched/corrupt task data (one bogus task, zero waiters/held), not valid kernel-state evidence. The live QEMU session was terminated after capture.
+- Build/reproduction remains blocked: `arm-none-eabi-gcc` is absent and no matching `build/output/bin/tinyara` ELF exists in the bughunt worktree. Existing BUG-001 and BUG-002 therefore remain `unreproduced candidate`; neither is reproduced, rejected, or fixed.
+
+### Apache NuttX comparison
+
+Official Apache NuttX master was queried directly. Its `pthread_cond_wait()` uses an atomic waiter counter plus `nxsem_wait_uninterruptible()`, and broadcast uses atomic compare/exchange decrementing before posts. This avoids the exact TizenRT ordinary-cond-wait EINTR accounting gap documented as BUG-20260814-002. No NuttX behavior was used to mark a TizenRT bug fixed.
+
+**Cycle judgment: 새 버그 없음.** The only newly scrutinized flag-check issue is resolved in merged `upstream/master`; existing candidates remain deduplicated and unreproduced. No push or PR was performed.
