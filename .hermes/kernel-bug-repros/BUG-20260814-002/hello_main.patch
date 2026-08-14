@@ -1,0 +1,52 @@
+diff --git a/apps/examples/hello/hello_main.c b/apps/examples/hello/hello_main.c
+--- a/apps/examples/hello/hello_main.c
++++ b/apps/examples/hello/hello_main.c
+@@ -55,6 +55,60 @@
+ 
+ #include <tinyara/config.h>
++#include <pthread.h>
++#include <signal.h>
++#include <string.h>
+ #include <stdio.h>
++
++static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
++static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
++static volatile sig_atomic_t g_signal_seen;
++
++static void bug002_handler(int signo)
++{
++	(void)signo;
++	g_signal_seen = 1;
++}
++
++static void *bug002_waiter(void *arg)
++{
++	int ret;
++	(void)arg;
++	pthread_mutex_lock(&g_mutex);
++	ret = pthread_cond_wait(&g_cond, &g_mutex);
++	printf("BUG-20260814-002 cond_wait=%d signal_seen=%d\\n", ret, g_signal_seen);
++	pthread_mutex_unlock(&g_mutex);
++	return NULL;
++}
+@@ -67,6 +121,27 @@
+ int hello_main(int argc, char *argv[])
+ #endif
+ {
+-	printf("Hello, World!!\\n");
++	struct sigaction act;
++	pthread_t waiter;
++	memset(&act, 0, sizeof(act));
++	act.sa_handler = bug002_handler;
++	sigaction(SIGUSR1, &act, NULL);
++	pthread_create(&waiter, NULL, bug002_waiter, NULL);
++	sleep(1);
++	pthread_kill(waiter, SIGUSR1);
++	sleep(1);
++	pthread_mutex_lock(&g_mutex);
++	pthread_cond_signal(&g_cond);
++	pthread_mutex_unlock(&g_mutex);
++	pthread_join(waiter, NULL);
++	printf("BUG-20260814-002 complete\\n");
+ 	return 0;
+ }
