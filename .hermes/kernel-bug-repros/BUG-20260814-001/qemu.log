@@ -1,0 +1,5 @@
+BUG-20260814-001 QEMU evidence
+qemu-system-arm virt/cortex-a15 booted from qemu_flash.bin and qemu_blk.bin with -S -gdb tcp::1235. Serial reached:
+virtio_blk_driver_initialize: virtio-blk registered: /dev/virtblk0 -> /dev/virtblkc0
+binary_manager_scan_kbin: Kernel version [0] 200204
+TASH>>

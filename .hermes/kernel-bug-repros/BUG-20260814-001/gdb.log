@@ -1,0 +1,3 @@
+BUG-20260814-001 GDB evidence
+Commands: source tizenrt_gdb.py; target remote :1235; interrupt; tizenrt current; tizenrt tasks; tizenrt tasks running; tizenrt task 6; tizenrt stack; tizenrt stack 6; tizenrt waiters; tizenrt held; break up_timer_disable; break up_timer_enable; call hello_main(0, 0); info registers r0 pc lr.
+Observed: PID 0 Idle Task RUNNING CPU 0; hpwork/lpwork WAIT_SIG; appinit WAIT_SEM; binary_manager WAIT_MQEMPTY; tash WAIT_SEM. PID 0 stack 404/1024, base 0x40150e50, SP 0x4015124c. Breakpoints: up_timer_disable 0x401162d4 (qemu_timer.c:197), up_timer_enable 0x401162ee (qemu_timer.c:202). Inferior call returned $1 = 0 with r0=0; no deterministic invalid value was demonstrated. Status: unreproduced candidate.

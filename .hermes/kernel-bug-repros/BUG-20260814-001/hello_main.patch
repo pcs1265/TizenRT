@@ -1,0 +1,24 @@
+diff --git a/apps/examples/hello/hello_main.c b/apps/examples/hello/hello_main.c
+index ada58ad5d..5c140ddce 100644
+--- a/apps/examples/hello/hello_main.c
++++ b/apps/examples/hello/hello_main.c
+@@ -55,6 +55,7 @@
+  ****************************************************************************/
+ 
+ #include <tinyara/config.h>
++#include <tinyara/arch.h>
+ #include <stdio.h>
+ 
+ /****************************************************************************
+@@ -67,6 +68,10 @@ int main(int argc, FAR char *argv[])
+ int hello_main(int argc, char *argv[])
+ #endif
+ {
+-	printf("Hello, World!!\n");
++	/* BUG-20260814-001: verify non-void timer controls return a value. */
++	int disable_ret = up_timer_disable();
++	int enable_ret = up_timer_enable();
++	printf("BUG-20260814-001 disable_ret=%d enable_ret=%d\n",
++	       disable_ret, enable_ret);
+ 	return 0;
+ }

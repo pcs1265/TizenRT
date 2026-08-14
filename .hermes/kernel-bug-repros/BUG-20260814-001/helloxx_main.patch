@@ -1,0 +1,24 @@
+diff --git a/apps/examples/helloxx/helloxx_main.cxx b/apps/examples/helloxx/helloxx_main.cxx
+index a4d711883..cc4d8ebad 100644
+--- a/apps/examples/helloxx/helloxx_main.cxx
++++ b/apps/examples/helloxx/helloxx_main.cxx
+@@ -55,6 +55,7 @@
+ //***************************************************************************
+ 
+ #include <tinyara/config.h>
++#include <tinyara/arch.h>
+ 
+ #include <cstdio>
+ #include <debug.h>
+@@ -174,6 +175,11 @@ extern "C"
+ #endif
+ 
+ 		delete pHelloWorld;
++		/* BUG-20260814-001: same timer return-value check in C++. */
++		int disable_ret = up_timer_disable();
++		int enable_ret = up_timer_enable();
++		printf("BUG-20260814-001 CXX disable_ret=%d enable_ret=%d\n",
++		       disable_ret, enable_ret);
+ 		return 0;
+ 	}
+ }
