@@ -1,0 +1,4 @@
+BUG-20260814-002 QEMU evidence
+Command: timeout 25s ./run_qemu.sh > /tmp/bughunt-qemu-20260814.log 2>&1
+Result: qemu-system-arm started from qemu_flash.bin/qemu_blk.bin and remained running until the timeout. The candidate app was not executed because rebuilding was blocked by the missing arm-none-eabi-gcc toolchain.
+Serial/GDB observation: target reached up_idle and the TizenRT GDB commands observed the normal qemu-virt idle/task state.
