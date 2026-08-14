@@ -137,10 +137,7 @@ int _trwifi_handle_command(struct netdev *dev, lwnl_req cmd)
 		return ND_NETOPS(dev, ifup(dev));
 	}
 	case LWNL_REQ_WIFI_DEINIT: {
-		/* DEINIT is used only for reset (deinit + reinit). Reinit does not call
-		 * INIT (ifup), so skip ifdown here to keep the netif link-up flag. */
-		//return ND_NETOPS(dev, ifdown(dev));
-		return 0;
+		return ND_NETOPS(dev, ifdown(dev));
 	}
 	default:
 		break;

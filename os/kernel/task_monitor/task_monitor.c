@@ -32,7 +32,6 @@
 #include <arch/reboot_reason.h>
 #endif
 
-#include "sched/sched.h"
 #include "task_monitor_internal.h"
 
 static task_monitor_node_t g_monitored_tasks_list[CONFIG_MAX_TASKS];
@@ -54,10 +53,6 @@ int task_monitor_register_list(int pid, int interval)
 	}
 
 	g_monitored_tasks_list[hash_pid].pid = pid;
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	struct tcb_s *tcb = sched_gettcb(pid);
-	g_monitored_tasks_list[hash_pid].is_kernel_task = (tcb && ((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL));
-#endif
 	if (interval % CONFIG_TASK_MONITOR_INTERVAL == 0) {
 		g_monitored_tasks_list[hash_pid].interval = interval / CONFIG_TASK_MONITOR_INTERVAL;
 	} else {
@@ -89,9 +84,6 @@ void task_monitor_unregester_list(int pid)
 	}
 
 	g_monitored_tasks_list[hash_pid].pid = 0;
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	g_monitored_tasks_list[hash_pid].is_kernel_task = false;
-#endif
 	interval = g_monitored_tasks_list[hash_pid].interval;
 	g_monitored_tasks_list[hash_pid].interval = 0;
 
@@ -117,9 +109,6 @@ static void task_monitor_init(void)
 		g_monitored_tasks_list[pid_idx].blink = NULL;
 		g_monitored_tasks_list[pid_idx].pid = 0;
 		g_monitored_tasks_list[pid_idx].interval = 0;
-#ifdef CONFIG_APP_BINARY_SEPARATION
-		g_monitored_tasks_list[pid_idx].is_kernel_task = false;
-#endif
 	}
 
 	g_monitor_cnt = 0;
@@ -171,15 +160,7 @@ int task_monitor(int argc, char *argv[])
 						*  System will be reset.
 						*/
 #ifdef CONFIG_SYSTEM_REBOOT_REASON
-#ifdef CONFIG_APP_BINARY_SEPARATION
-						if (next_mon_node->is_kernel_task) {
-							up_reboot_reason_write(REBOOT_SYSTEM_WATCHDOG);
-						} else {
-							up_reboot_reason_write(REBOOT_USER_WATCHDOG);
-						}
-#else
 						up_reboot_reason_write(REBOOT_SYSTEM_WATCHDOG);
-#endif
 #endif
 						boardctl(BOARDIOC_RESET, 0);
 					} else {

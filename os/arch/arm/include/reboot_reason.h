@@ -19,7 +19,6 @@
 #define __ARCH_ARM_INCLUDE_REBOOT_REASON_H
 
 #include <stdbool.h>
-#include <stdint.h>
 #include <tinyara/reboot_reason.h>
 
 /****************************************************************************
@@ -29,8 +28,7 @@
 void up_reboot_reason_init(void);
 reboot_reason_code_t up_reboot_reason_read(void);
 void up_reboot_reason_write(reboot_reason_code_t reason);
-void reboot_reason_try_write_assert(uintptr_t addr);
-void up_reboot_reason_write_by_addr(uintptr_t addr, reboot_reason_code_t reason);
+void reboot_reason_try_write_assert(void);
 void up_reboot_reason_clear(void);
 bool up_reboot_reason_is_written(void);
 

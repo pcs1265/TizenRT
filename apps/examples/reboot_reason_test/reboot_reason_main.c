@@ -55,7 +55,6 @@
  ****************************************************************************/
 
 #include <tinyara/config.h>
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef CONFIG_WATCHDOG
@@ -81,9 +80,7 @@ static void display_reboot_reason_option(void)
 #ifdef CONFIG_MM_ASSERT_ON_FAIL
 	printf("\t-Press M or m : Memory Allocation Fail Test\n");
 #endif
-	printf("\t-Press D or d : Data Abort Test\n");
 	printf("\t-Press P or p : Prefetch Abort Test\n");
-	printf("\t-Press A or a : Assert Reboot Test\n");
 	printf("\t-Press V or v : Random Value Write-Read Test\n");
 	printf("\t-Press C or c : Clear reboot reason\n");
 #endif
@@ -145,12 +142,6 @@ static void memory_alloc_fail_test(void)
 }
 #endif
 
-static void data_abort_test(void)
-{
-	volatile int *ptr = (volatile int *)0;
-	*ptr = 0;
-}
-
 static void prefetch_abort_test(void)
 {
 	/* The address allocated from heap can't be code. This will lead prefetch abort. */
@@ -205,43 +196,15 @@ int reboot_reason_main(int argc, char *argv[])
 		case 'M':
 		case 'm':
 			/* Test for Memory Allocation Fail */
-#ifdef CONFIG_APP_BINARY_SEPARATION
-			printf("After Memory Allocation Fail, Expected Reboot reason is %d\n", REBOOT_USER_MEMORYALLOCFAIL);
-#else
 			printf("After Memory Allocation Fail, Expected Reboot reason is %d\n", REBOOT_SYSTEM_MEMORYALLOCFAIL);
-#endif
 			memory_alloc_fail_test();
 			break;
 #endif
-		case 'D':
-		case 'd':
-			/* Test for Data Abort */
-#ifdef CONFIG_APP_BINARY_SEPARATION
-			printf("After Data Abort, Expected Reboot reason is %d\n", REBOOT_USER_DATAABORT);
-#else
-			printf("After Data Abort, Expected Reboot reason is %d\n", REBOOT_SYSTEM_DATAABORT);
-#endif
-			data_abort_test();
-			break;
 		case 'P':
 		case 'p':
 			/* Test for Prefetch Abort */
-#ifdef CONFIG_APP_BINARY_SEPARATION
-			printf("After Prefetch Abort, Expected Reboot reason is %d\n", REBOOT_USER_PREFETCHABORT);
-#else
 			printf("After Prefetch Abort, Expected Reboot reason is %d\n", REBOOT_SYSTEM_PREFETCHABORT);
-#endif
 			prefetch_abort_test();
-			break;
-		case 'A':
-		case 'a':
-			/* Test for Assert */
-#ifdef CONFIG_APP_BINARY_SEPARATION
-			printf("After Assert, Expected Reboot reason is %d\n", REBOOT_USER_ASSERT);
-#else
-			printf("After Assert, Expected Reboot reason is %d\n", REBOOT_SYSTEM_ASSERT);
-#endif
-			assert(0);
 			break;
 		case 'V':
 		case 'v':
@@ -254,11 +217,7 @@ int reboot_reason_main(int argc, char *argv[])
 		case 'c':
 			/* Clear the previous reboot reason with REBOOT_REASON_INITIALIZED(0) */
 			printf("Will write %d and then will clear.\n", REBOOT_REASON_TEST_VAL);
-#ifdef CONFIG_APP_BINARY_SEPARATION
-			printf("Expected reboot reason after reset is %d, otherwise wrong operation.\n", REBOOT_USER_WITHOUT_SET_REASON);
-#else
-			printf("Expected reboot reason after reset is %d, otherwise wrong operation.\n", REBOOT_SYSTEM_WITHOUT_SET_REASON);
-#endif
+			printf("Expected reboot reason after reset is %d, otherwise wrong operation.\n", REBOOT_UNKNOWN);
 			WRITE_REBOOT_REASON(REBOOT_REASON_TEST_VAL);
 			CLEAR_REBOOT_REASON();
 			reboot_board();

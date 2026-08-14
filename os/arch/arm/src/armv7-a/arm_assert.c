@@ -621,8 +621,9 @@ void up_assert(const uint8_t *filename, int lineno)
 	board_autoled_on(LED_ASSERTION);
 
 #ifdef CONFIG_SYSTEM_REBOOT_REASON
-	reboot_reason_try_write_assert(asserted_location);
+	reboot_reason_try_write_assert();
 #endif
+
 
 #ifdef CONFIG_SECURITY_LEVEL
 	lldbg_noarg("security level: %d\n", get_security_level());
