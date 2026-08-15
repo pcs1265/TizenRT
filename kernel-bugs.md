@@ -600,3 +600,34 @@ A direct no-symbol GDB probe against the live target confirmed the target had ra
 Apache NuttX official master was fetched at `2b5509e48ae6264a458269813a21b7dfb6130d16` and its current raw sources were inspected. NuttX atomically increments the condition waiter count, breaks/restores the mutex, and uses `nxsem_wait_uninterruptible()`; `pthread_cond_signal()` atomically decrements the count before `nxsem_post()`. This differs from TizenRT's interruptible ordinary wait and confirms the already-recorded BUG-20260814-002 distinction. It is not a TizenRT fix and does not change status.
 
 **Cycle judgment: 새 버그 없음.** No new upstream scheduler-family source/diff, independent root cause, or non-duplicate BUG-ID was found. No per-BUG reproduction artifacts were opened because no new bug was justified and the cross-build compiler/matching ELF are unavailable. The user's worktree and `feat/qemu-virt-gdb-awareness` were not modified; only this isolated ledger update is to be committed locally. No push or PR was performed.
+
+## Run: 2026-08-15 15:00 UTC monitor cycle
+
+### Change review, source/diff audit, and deduplication
+
+- `git fetch --prune upstream origin` completed with exit 0. `upstream/master` remains `93cde68110a26df205ac4f0f536cff70699f1bc6`; `feat/qemu-virt-gdb-awareness` remains `bd5069ad3650600fb5b0aab07ca66106362817b2`; the isolated `qemu-virt_bughunt` worktree remains separate at `eee4b2a3c14bf5a072181982bd00a683bac8155c`.
+- `git rev-list --count qemu-virt_bughunt..upstream/master` returned `0`, and path-scoped `git log`/`git diff` checks over scheduler, pthread, semaphore, mutex, condition, cancellation, SMP, task, and qemu-virt paths found no upstream source change after the prior audit. The monitor delta was the probe hour plus the local audit commit, not a new upstream kernel commit.
+- Current upstream files were inspected directly. `pthread_cond_wait()` increments `cond->waiters` before interruptible `pthread_sem_take()` and has no failure-path decrement (`os/kernel/pthread/pthread_condwait.c:119-146`); `pthread_cond_timedwait()` decrements on failure (`pthread_condtimedwait.c:304-307`). This is the already-recorded BUG-20260814-002 root cause. BUG-20260814-001 (qemu-virt timer return-value candidate) and BUG-20260814-002 remain deduplicated. No merged TizenRT fix exists, so neither is fixed.
+
+### Runtime and GDB evidence
+
+Commands executed only in the isolated bughunt worktree:
+
+```text
+python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py
+# exit 0
+
+timeout 18s ./run_qemu.sh
+# exit 124; QEMU booted, validated the kernel, initialized virtio-blk, mounted SMARTFS, and reached TASH>>
+
+timeout 10s gdb-multiarch -q -batch -ex 'set architecture arm' -ex 'set $build_output_path="/home/pcs1265/TizenRT/.hermes/bughunt-worktree/build/output/bin"' -ex 'target remote :1234' -ex 'source build/configs/qemu-virt/tools/auto_symbol_loader.py' -ex 'source build/configs/qemu-virt/tools/tizenrt_gdb.py' -ex 'interrupt' -ex 'tizenrt current' -ex 'tizenrt tasks' -ex 'tizenrt stack' -ex 'tizenrt waiters' -ex 'tizenrt held' -ex 'info registers pc sp lr' -ex 'detach' -ex 'quit'
+# exit 0; both tools loaded and all requested commands executed
+```
+
+GDB had no matching `build/output/bin/tinyara` ELF or symbol table. `auto_symbol_loader.py` therefore reported no symbol table, and `tizenrt_gdb.py` reported unavailable running-task symbols, `0 task(s)`, `0 semaphore waiter(s)`, and `0 held semaphore(s)`. Raw registers were `pc=0x40114c00`, `sp=0x4015122c`, and `lr=0x40104a31`. `arm-none-eabi-gcc` is absent, so no hello_main/helloxx_main image could be built or executed in independent per-BUG worktrees. Both existing IDs remain **unreproduced candidate**; this run is not reproduction evidence.
+
+### Apache NuttX official-master comparison
+
+The official Apache NuttX raw master sources were fetched directly. Its `pthread_cond_wait()` uses an atomic waiter counter, mutex break/restore, and `nxsem_wait_uninterruptible()`; `pthread_cond_signal()` atomically decrements the waiter count before `nxsem_post()`. This differs from TizenRT's interruptible ordinary wait and confirms the existing BUG-20260814-002 distinction. NuttX is not a TizenRT fix, and no ID was marked fixed from the comparison.
+
+**Cycle judgment: 새 버그 없음.** No new upstream scheduler-family source/diff, independent root cause, or non-duplicate BUG-ID was found. No new per-BUG reproduction artifacts were justified. The user's worktree and `feat/qemu-virt-gdb-awareness` were not modified; only this isolated ledger update is to be committed locally. No push or PR was performed.
