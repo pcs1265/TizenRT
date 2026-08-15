@@ -130,3 +130,41 @@ The image reached `TASH>>`. The GDB OS-awareness commands executed, but the only
 Official Apache NuttX master was fetched/checked at `36a971567ac706b86fb9e94cceeb3c81083da344`. Its `libs/libc/pthread/pthread_condwait.c` uses an atomic condition waiter counter, `pthread_mutex_breaklock()`, and `nxsem_wait_uninterruptible()`. Its `pthread_condsignal.c` uses atomic compare/exchange before `nxsem_post()`. This differs from TizenRT's interruptible `pthread_sem_take()` path and confirms the existing BUG-20260814-002 distinction; it does not constitute a TizenRT fix.
 
 **Cycle judgment: 새 버그 없음.** No distinct upstream scheduler-family change or non-duplicate root cause was found. No reproduction patch/README/GDB artifact was opened because no new BUG-ID was justified. No push or PR was performed.
+
+## Run: 2026-08-15 01:00 UTC monitor cycle
+
+### Bases, source/diff audit, and deduplication
+
+- `git fetch --prune upstream origin`: exit 0. `upstream/master` remains `93cde68110a26df205ac4f0f536cff70699f1bc6` (`system_file : verify littlefs mount before format and corruption`); the monitor diff changed only the probe hour and the local audit HEAD.
+- The isolated `qemu-virt_bughunt` worktree is still based on `upstream/master` (`git merge-base` = `93cde681...`; upstream is an ancestor) and retains the qemu-virt/GDB tooling delta. `feat/qemu-virt-gdb-awareness` remains `bd5069ad3650600fb5b0aab07ca66106362817b2`. The user's worktree and feature branch were not modified.
+- `git log` and `git diff` were run against the actual upstream tree for scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task paths. No upstream commit in those areas arrived since the previous ledger base. The previously reviewed changes (`813daa2fe`, `47b50100f`, `5cf352dd5`, `c93078ab0`, `ed41deb4e`, `4860dbdb2`, `542d47be3`, `e705013c1`) were rechecked in source/diff context.
+- Existing IDs remain deduplicated: BUG-20260814-001 (timer return-value candidate) and BUG-20260814-002 (ordinary condition-wait EINTR waiter accounting). Current `pthread_cond_wait()` increments `cond->waiters` before interruptible `pthread_sem_take()` and has no failure-path decrement; `pthread_cond_timedwait()` does decrement on failure. This is the same BUG-20260814-002 root cause, not a new ID. No reviewed change supplies a merged fix, so neither candidate is `fixed`.
+
+### Runtime and GDB evidence
+
+Commands executed in the isolated worktree:
+
+```text
+python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py
+# passed
+
+timeout 25s ./run_qemu.sh > /tmp/bughunt-20260815-0100-qemu.log 2>&1
+# exit 124; QEMU booted, validated the pflash kernel, mounted SMARTFS, and reached TASH>>
+
+timeout 12s gdb-multiarch -q -batch -ex 'set architecture arm' \
+  -ex 'set $build_output_path="/home/pcs1265/TizenRT/.hermes/bughunt-worktree/build/output/bin"' \
+  -ex 'target remote :1234' -ex 'source build/configs/qemu-virt/tools/auto_symbol_loader.py' \
+  -ex 'source build/configs/qemu-virt/tools/tizenrt_gdb.py' -ex 'interrupt' \
+  -ex 'tizenrt current' -ex 'tizenrt tasks' -ex 'tizenrt stack' \
+  -ex 'tizenrt waiters' -ex 'tizenrt held' -ex 'info registers pc sp lr' \
+  -ex 'detach' -ex 'quit' build/output/bin/tinyara > /tmp/bughunt-20260815-0100-gdb.log 2>&1
+# exit 0; all OS-awareness commands loaded and executed
+```
+
+Observed QEMU output: SMP disabled, virtio-blk initialized, kernel CRC passed, SMARTFS mounted at `/mnt`, and `TASH>>` appeared. GDB connected at `:1234`, loaded both requested Python tools, but reported `build/output/bin/tinyara: No such file or directory`; consequently it observed no symbol-backed tasks, stacks, waiters, or held semaphores (0 entries) and only raw `pc=0x40114c00`, `sp=0x4015122c`, `lr=0x40104a31`. This is valid tool/boot evidence but not a reproduction. `arm-none-eabi-gcc` is absent and no matching bughunt ELF exists, so no hello_main/helloxx_main image could be built. BUG-001 and BUG-002 remain **unreproduced candidate**.
+
+### Apache NuttX comparison
+
+Official Apache NuttX master was freshly cloned/checked at `36a971567ac706b86fb9e94cceeb3c81083da344` (`arch/arm/rtl8721f: add SPI master driver support`). Its `pthread_cond_wait()` uses an atomic waiter counter, `pthread_mutex_breaklock()`, and `nxsem_wait_uninterruptible()`; `pthread_condsignal()` atomically decrements the waiter count before `nxsem_post()`. This differs from TizenRT's interruptible ordinary wait and supports the existing BUG-20260814-002 distinction, but does not fix TizenRT and was not used to mark any ID fixed.
+
+**Cycle judgment: 새 버그 없음.** No new upstream scheduler-family change, independently actionable root cause, or non-duplicate BUG-ID was found. No new reproduction artifacts were opened. Only the isolated bughunt ledger was changed and committed locally; no push or PR was performed.
