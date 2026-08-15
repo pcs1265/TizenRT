@@ -725,3 +725,34 @@ QEMU boot evidence was real: SMP disabled, S1 boot and kernel CRC passed, virtio
 `git ls-remote https://github.com/apache/nuttx.git refs/heads/master` returned `2b5509e48ae6264a458269813a21b7dfb6130d16`. The actual official-master raw sources were inspected. NuttX `pthread_cond_wait()` atomically increments its waiter count and uses `nxsem_wait_uninterruptible()` after breaking the mutex; `pthread_cond_signal()` and broadcast atomically decrement the count before posting. That materially differs from TizenRT's interruptible ordinary wait and confirms the already-recorded BUG-20260814-002 distinction. It is not a TizenRT fix and does not change either status.
 
 **Cycle judgment: 새 버그 없음.** No new upstream scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task commit, independently actionable root cause, or non-duplicate BUG-ID was found. Existing candidates remain unreproduced. No new reproduction patch/README/GDB artifact was justified. No push or PR was performed; only this isolated ledger update is committed locally.
+
+## Run: 2026-08-15 20:00 UTC monitor cycle
+
+### Change review, source audit, and deduplication
+
+- `git fetch --prune upstream origin` completed with exit 0. The monitored HEAD change is only the local audit commit (`d3299b151`, now `qemu-virt_bughunt`); `feat/qemu-virt-gdb-awareness` remains `bd5069ad3650600fb5b0aab07ca66106362817b2` and the user's worktree was not modified.
+- `git rev-list --left-right --count qemu-virt_bughunt...upstream/master` returned `42 0`; `git log HEAD..upstream/master -- os/kernel os/arch/arm/src os/pm os/include/tinyara` returned no commits. Thus there is no new upstream scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task change to analyze. The upstream tip remains `93cde68110a26df205ac4f0f536cff70699f1bc6`, whose actual diff is the unrelated `apps/system/utils/fscmd.c` LittleFS mount/format validation change.
+- Current source inspection found the known ordinary condition-wait mismatch: `pthread_condwait.c:119-146` increments `cond->waiters` and calls interruptible `pthread_sem_take()` without a failure-path decrement; timed wait decrements on failure (`pthread_condtimedwait.c:291-317`), and signal decrements before posting (`pthread_condsignal.c:115-124`). This is the existing BUG-20260814-002 root cause, not a new ID. BUG-20260814-001 remains the distinct qemu-virt timer return-value candidate. Neither has a TizenRT fix merged in `upstream/master`, so neither is `fixed`; both remain **unreproduced candidate**.
+
+### Runtime and GDB evidence
+
+Commands executed only in the isolated `/home/pcs1265/TizenRT/.hermes/bughunt-worktree`:
+
+```text
+python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py
+# exit 0
+
+timeout 20s ./run_qemu.sh > /tmp/bughunt-20260815T2000-qemu.log 2>&1
+# exit 124 (timeout); QEMU booted and reached TASH>>
+
+timeout 12s gdb-multiarch -q -nx -batch -ex 'set architecture arm' -ex 'target remote 127.0.0.1:1234' -ex 'source build/configs/qemu-virt/tools/auto_symbol_loader.py' -ex 'source build/configs/qemu-virt/tools/tizenrt_gdb.py' -ex 'interrupt' -ex 'tizenrt current' -ex 'tizenrt tasks' -ex 'tizenrt stack' -ex 'tizenrt waiters' -ex 'tizenrt held' -ex 'info registers pc sp lr' -ex 'detach' -ex 'quit' > /tmp/bughunt-20260815T2000-gdb.log 2>&1
+# exit 0
+```
+
+QEMU output showed SMP disabled, S1 boot and kernel CRC success, virtio-blk initialization, SMARTFS mount at `/mnt`, `/dev/virtblk0` registration, and `TASH>>`. GDB connected at `0x40114c00`; `auto_symbol_loader.py` raised its existing `AttributeError: 'NoneType' object has no attribute 'string'`, while `tizenrt_gdb.py` loaded and executed all requested commands. Without an executable/symbol table it reported unavailable running-task symbols, `0 task(s)`, `0 semaphore waiter(s)`, `0 held semaphore(s)`, and registers `pc=0x40114c00`, `sp=0x4015122c`, `lr=0x40104a31`. `build/output/bin/tinyara` and `arm-none-eabi-gcc` are absent, so independent temporary BUG worktrees could not build hello_main/helloxx_main images. This is boot/tool evidence only; no existing candidate became reproduced.
+
+### Apache NuttX official-master comparison
+
+`git ls-remote https://github.com/apache/nuttx.git refs/heads/master` returned `2b5509e48ae6264a458269813a21b7dfb6130d16`. The official raw master sources were inspected: NuttX `pthread_cond_wait()` uses an atomic waiter increment and `nxsem_wait_uninterruptible()` after breaking the mutex; `pthread_cond_signal()` atomically decrements the waiter count before `nxsem_post()`. The behavior materially differs from TizenRT and corroborates BUG-20260814-002, but does not fix TizenRT. The requested shallow clone could not be retained because the environment returned `Disk quota exceeded`; raw official-master retrieval succeeded.
+
+**Cycle judgment: 새 버그 없음.** The monitor change contained no upstream kernel-family arrival, no independently actionable new root cause, and no non-duplicate BUG-ID. BUG-20260814-001 and BUG-20260814-002 remain deduplicated **unreproduced candidate** records. No new per-BUG reproduction patch/README/GDB artifact was justified. No push or PR was performed; only this isolated ledger update is local.
