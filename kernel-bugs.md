@@ -662,3 +662,35 @@ QEMU evidence was real boot evidence, but `build/output/bin/tinyara` and `arm-no
 Apache NuttX was shallow-cloned at official master `2b5509e48ae6264a458269813a21b7dfb6130d16` and the actual sources were inspected. NuttX `pthread_cond_wait()` atomically increments the waiter count, breaks/restores the mutex, and uses `nxsem_wait_uninterruptible()` (`libs/libc/pthread/pthread_condwait.c:93-113`); `pthread_cond_signal()` uses atomic compare-and-exchange to decrement before `nxsem_post()` (`pthread_condsignal.c:69-77`). This is materially different from TizenRT's interruptible ordinary wait and confirms, but does not fix, BUG-20260814-002. No ID was marked fixed from the comparison.
 
 **Cycle judgment: 새 버그 없음.** The monitor change was only the probe hour/local audit HEAD; upstream/master introduced no new scheduler-family commit. Existing BUG-20260814-001 and BUG-20260814-002 remain deduplicated **unreproduced candidate** records. No new per-BUG artifacts were justified. The user's worktree and `feat/qemu-virt-gdb-awareness` were not modified; this isolated ledger update is local-only and will not be pushed or proposed as a PR.
+
+## Run: 2026-08-15 17:00 UTC monitor cycle
+
+### Change review, source audit, and deduplication
+
+- `git fetch --prune upstream origin`: exit 0. `upstream/master` remains `93cde68110a26df205ac4f0f536cff70699f1bc6`; `feat/qemu-virt-gdb-awareness` remains `bd5069ad3650600fb5b0aab07ca66106362817b2`; isolated `qemu-virt_bughunt` is `f2232fa31d2c5d8f9d997890fb27596706ac6dd6` before this entry. The user's worktree was not modified.
+- Actual scoped commands `git log qemu-virt_bughunt..upstream/master -- os/kernel os/pm os/arch/arm/src os/include/tinyara` and `git diff --quiet qemu-virt_bughunt..upstream/master -- ...` found no upstream scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task changes (`scoped_diff_exit=1` here means the retained bughunt qemu-virt delta differs from upstream; the path-scoped commit log is empty, and `git rev-list --left-right --count` is `40 0`). The only upstream tip is the unrelated `apps/system/utils/fscmd.c` LittleFS mount/format safety change in `93cde681`; its actual diff was inspected.
+- Current condition code was inspected at `os/kernel/pthread/pthread_condwait.c:119-146`, `pthread_condtimedwait.c:291-317`, and `pthread_condsignal.c:115-124`. Ordinary wait increments `cond->waiters`, calls interruptible `pthread_sem_take()`, and has no failure decrement; timed wait decrements on failure and signal decrements before posting. This remains exactly BUG-20260814-002, not a new root cause. BUG-20260814-001 remains the distinct qemu-virt timer return-value candidate. No duplicate ID or root-cause split was justified, and no resolving TizenRT commit is merged into `upstream/master`; both remain **unreproduced candidate**.
+- The four historical child-status bitmask fixes and waitpid return fix were also checked against merged upstream source; no new task/scheduler defect was found and no ID was marked fixed incorrectly.
+
+### Runtime and GDB evidence
+
+Commands executed only in `/home/pcs1265/TizenRT/.hermes/bughunt-worktree`:
+
+```text
+python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py
+# exit 0
+
+timeout 20s ./run_qemu.sh > /tmp/bughunt-20260815T1700-qemu.log 2>&1
+# exit 124; qemu-system-arm booted S1-BOOT, passed kernel CRC, initialized virtio-blk, mounted SMARTFS, and reached TASH>>
+
+timeout 10s gdb-multiarch -q -nx -batch -ex 'set architecture aarch64' -ex 'target remote 127.0.0.1:1234' -ex 'source build/configs/qemu-virt/tools/auto_symbol_loader.py' -ex 'source build/configs/qemu-virt/tools/tizenrt_gdb.py' -ex 'interrupt' -ex 'tizenrt current' -ex 'tizenrt tasks' -ex 'tizenrt stack' -ex 'tizenrt waiters' -ex 'tizenrt held' -ex 'info registers pc sp lr' -ex 'detach' -ex 'quit' > /tmp/bughunt-20260815T1700-gdb.log 2>&1
+# exit 0; both tools loaded and all requested commands executed
+```
+
+GDB reported that the target advertised `arm` while the requested `aarch64` setting was incompatible; the auto loader raised its existing `NoneType.string` exception, but `tizenrt_gdb.py` loaded and all requested OS-awareness commands ran. It reported no executable/symbol table, `0 task(s)`, `0 semaphore waiter(s)`, and `0 held semaphore(s)`; the session ended with no registers after detach. `build/output/bin/tinyara` and `arm-none-eabi-gcc` are absent, so no hello_main/helloxx_main image could be built or run in independent per-BUG temporary worktrees. This is valid boot/tool evidence, not reproduction evidence. Both existing IDs remain **unreproduced candidate**, not reproduced, rejected, or fixed.
+
+### Apache NuttX official-master comparison
+
+`git ls-remote https://github.com/apache/nuttx.git refs/heads/master` returned `2b5509e48ae6264a458269813a21b7dfb6130d16`. The actual official-master sources were fetched and inspected: NuttX `pthread_cond_wait()` atomically increments its waiter count, breaks/restores the mutex, and uses `nxsem_wait_uninterruptible()`; `pthread_cond_signal()` atomically decrements the count with compare/exchange before `nxsem_post()`. NuttX `sched_waitpid.c` returns the child PID for both the any-child and SIGCHLD paths. This differs materially from TizenRT's interruptible ordinary condition wait and confirms, but does not fix, BUG-20260814-002. No TizenRT ID was marked fixed from the comparison.
+
+**Cycle judgment: 새 버그 없음.** No new upstream scheduler-family commit, independently actionable root cause, or non-duplicate BUG-ID was found. Existing BUG-20260814-001 and BUG-20260814-002 remain deduplicated **unreproduced candidate** records. No new per-BUG artifacts were justified. No push or PR was performed; only this isolated bughunt ledger update is local.
