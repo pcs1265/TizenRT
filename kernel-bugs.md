@@ -788,6 +788,37 @@ Official Apache NuttX master was fetched via raw GitHub at `2b5509e48ae6264a4582
 
 **Cycle judgment: 새 버그 없음.** The monitor delta was the probe hour and local audit HEAD only. No new upstream kernel-family change, independently actionable root cause, or non-duplicate BUG-ID was found. Existing BUG-20260814-001 and BUG-20260814-002 remain deduplicated **unreproduced candidate** records. No new reproduction artifacts were justified; no push or PR was performed.
 
+## Run: 2026-08-15 23:00 UTC monitor cycle
+
+### Change review, source audit, and deduplication
+
+- `git fetch --prune upstream origin` completed with exit 0. `upstream/master` remains `93cde68110a26df205ac4f0f536cff70699f1bc6`; `feat/qemu-virt-gdb-awareness` remains `bd5069ad3650600fb5b0aab07ca66106362817b2`; the isolated `qemu-virt_bughunt` worktree advanced only from `c997add1dae466d9af87f5e2607058ff95ac04cb` to `e0010419cae051fa2e98201acef533ef1462cde5` for this ledger entry. The user's worktree and feature branch were not modified.
+- `git merge-base qemu-virt_bughunt upstream/master` is `93cde681...`; `git log <merge-base>..upstream/master` is empty. The prior audit base and current audit base both have `44` upstream commits ahead of that merge-base and no new upstream commit arrived. A path-scoped diff over scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task paths is empty; the only upstream tip change is `apps/system/utils/fscmd.c`, outside this audit scope. The actual `93cde681` diff changes LittleFS mount validation/temporary format mounting and does not alter kernel synchronization or scheduling.
+- Existing IDs remain deduplicated. BUG-20260814-001 is the qemu-virt `up_timer_disable()` / `up_timer_enable()` return-value candidate. BUG-20260814-002 is ordinary `pthread_cond_wait()` interrupted-waiter accounting: TizenRT still increments `cond->waiters` before interruptible `pthread_sem_take()` and does not decrement on that failure path, while the timed path does. No new root cause or ID was found. No TizenRT candidate was marked `fixed`: no relevant fix has actually merged into `upstream/master`.
+
+### Runtime and GDB evidence
+
+Commands executed only in the isolated bughunt worktree:
+
+```text
+python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py
+# exit 0
+
+timeout 30s ./run_qemu.sh > /tmp/bughunt-20260815T2300-qemu.log 2>&1
+# exit 124 (timeout); boot reached TASH>>
+
+timeout 15s gdb-multiarch -q -nx -batch -ex 'set architecture arm' -ex 'set $build_output_path="/home/pcs1265/TizenRT/.hermes/bughunt-worktree/build/output/bin"' -ex 'target remote 127.0.0.1:1234' -ex 'source build/configs/qemu-virt/tools/auto_symbol_loader.py' -ex 'source build/configs/qemu-virt/tools/tizenrt_gdb.py' -ex 'interrupt' -ex 'tizenrt current' -ex 'tizenrt tasks' -ex 'tizenrt stack' -ex 'tizenrt waiters' -ex 'tizenrt held' -ex 'info registers pc sp lr' -ex 'detach' -ex 'quit' > /tmp/bughunt-20260815T2300-gdb.log 2>&1
+# exit 0; both tools loaded and all requested commands ran
+```
+
+QEMU output showed SMP disabled, S1 boot, kernel CRC pass, virtio-blk initialization, SMARTFS mounted at `/mnt`, `/dev/virtblk0`, and `TASH>>`; the flashed image is the existing `2026-08-14 02:18:15 UTC` build. GDB connected at `0x40114c00`; `auto_symbol_loader.py` reported no executable/symbol table and its known `No symbol table is loaded` error, but `tizenrt_gdb.py` loaded and executed `current`, `tasks`, `stack`, `waiters`, and `held`. Because no matching ELF was available, OS-awareness reported 0 symbol-backed tasks, 0 semaphore waiters, and 0 held semaphores; registers were `pc=0x40114c00`, `sp=0x4015122c`, `lr=0x40104a31`. `arm-none-eabi-gcc` is absent, so no independent hello_main/helloxx_main image could be built. Therefore both existing IDs remain **unreproduced candidate**, not reproduced or rejected.
+
+### Apache NuttX official-master comparison
+
+The official Apache NuttX master `libs/libc/pthread/pthread_condwait.c` was fetched and inspected. It atomically increments the condition waiter count, breaks the mutex, waits with `nxsem_wait_uninterruptible()`, and restores the mutex. This materially differs from TizenRT's interruptible ordinary wait and corroborates the already-recorded BUG-20260814-002 distinction; it is not evidence that TizenRT is fixed. No new TizenRT bug was opened.
+
+**Cycle judgment: 새 버그 없음.** The monitor change was only the UTC hour and local audit commit; upstream/master had no new scheduler-family commit. Existing BUG-20260814-001 and BUG-20260814-002 remain deduplicated **unreproduced candidate** records. No new per-BUG reproduction artifacts were justified. No push or PR was performed; only this isolated ledger update is local.
+
 ## Run: 2026-08-15 22:00 UTC monitor cycle
 
 ### Change review, source audit, and deduplication
