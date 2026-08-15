@@ -90,3 +90,43 @@ No source files on the user's worktree or on `feat/qemu-virt-gdb-awareness` were
 Official Apache NuttX master was queried directly. Its `pthread_cond_wait()` uses an atomic waiter counter plus `nxsem_wait_uninterruptible()`, and broadcast uses atomic compare/exchange decrementing before posts. This avoids the exact TizenRT ordinary-cond-wait EINTR accounting gap documented as BUG-20260814-002. No NuttX behavior was used to mark a TizenRT bug fixed.
 
 **Cycle judgment: 새 버그 없음.** The only newly scrutinized flag-check issue is resolved in merged `upstream/master`; existing candidates remain deduplicated and unreproduced. No push or PR was performed.
+
+## Run: 2026-08-15 00:00 UTC monitor cycle
+
+### Bases, change review, and deduplication
+
+- `git fetch --prune upstream origin`: exit 0.
+- `upstream/master` is still `93cde68110a26df205ac4f0f536cff70699f1bc6` (`system_file : verify littlefs mount before format and corruption`); no new upstream commit arrived since the prior ledger base. The new monitor line was the UTC probe hour and the bughunt audit commit, not a scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task upstream change.
+- `feat/qemu-virt-gdb-awareness` remains `bd5069ad3650600fb5b0aab07ca66106362817b2`. The isolated `qemu-virt_bughunt` worktree remains separate at `f3bb12ef779fe2ec700ee18beed3c11f125c8356`; neither the user's worktree nor the feature branch was modified.
+- Rechecked the actual merged diffs for `e705013c1` (child-status bitmask operators), `542d47be3` (waitpid child PID return), and the current pthread/semaphore/mutex/task files. The `&` checks and `pid = child->ch_pid` are present in `upstream/master`; these are fixed upstream issues, not new IDs.
+- Existing IDs remain deduplicated: BUG-20260814-001 (timer return-value candidate) and BUG-20260814-002 (ordinary condition-wait EINTR waiter accounting). The current `pthread_cond_wait()` still increments `cond->waiters` at line 121 and has no failure-path decrement after `pthread_sem_take()` (lines 129-146), while timed wait does decrement. This is the same BUG-20260814-002 root cause, not a new bug.
+
+### Runtime and GDB evidence
+
+Commands run in the isolated worktree:
+
+```text
+python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py
+# passed
+
+timeout 20s ./run_qemu.sh > /tmp/bughunt-20260815T00-qemu.log 2>&1
+# exit 124; QEMU booted through S1, kernel handoff, SMARTFS mount, and TASH>>
+
+timeout 15s gdb-multiarch -q -batch -ex 'set architecture arm' \
+  -ex 'set $build_output_path="/home/pcs1265/TizenRT/build/output/bin"' \
+  -ex 'target remote :1234' \
+  -ex 'source build/configs/qemu-virt/tools/auto_symbol_loader.py' \
+  -ex 'source build/configs/qemu-virt/tools/tizenrt_gdb.py' -ex 'interrupt' \
+  -ex 'tizenrt current' -ex 'tizenrt tasks' -ex 'tizenrt stack' \
+  -ex 'tizenrt waiters' -ex 'tizenrt held' -ex 'info registers pc sp lr' \
+  -ex 'detach' -ex 'quit' build/output/bin/tinyara
+# exit 0; commands loaded and executed
+```
+
+The image reached `TASH>>`. The GDB OS-awareness commands executed, but the only available ELF was the user's worktree ELF, not a matching bughunt build: `tizenrt tasks` reported one corrupt task (`pid -278`, `STATE_229`, invalid-looking stack addresses), and `tizenrt waiters`/`held` reported zero. The auto-symbol loader reported no already-loaded binaries. This is invalid for reproduction and is recorded as runtime evidence only. `arm-none-eabi-gcc` remains absent, so no hello_main/helloxx_main reproduction image could be built. Existing BUG-001 and BUG-002 remain **unreproduced candidate**, not reproduced, rejected, or fixed.
+
+### Apache NuttX comparison
+
+Official Apache NuttX master was fetched/checked at `36a971567ac706b86fb9e94cceeb3c81083da344`. Its `libs/libc/pthread/pthread_condwait.c` uses an atomic condition waiter counter, `pthread_mutex_breaklock()`, and `nxsem_wait_uninterruptible()`. Its `pthread_condsignal.c` uses atomic compare/exchange before `nxsem_post()`. This differs from TizenRT's interruptible `pthread_sem_take()` path and confirms the existing BUG-20260814-002 distinction; it does not constitute a TizenRT fix.
+
+**Cycle judgment: 새 버그 없음.** No distinct upstream scheduler-family change or non-duplicate root cause was found. No reproduction patch/README/GDB artifact was opened because no new BUG-ID was justified. No push or PR was performed.
