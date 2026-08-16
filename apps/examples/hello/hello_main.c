@@ -87,6 +87,7 @@
 #define KSC013_TIMEOUT_SECONDS 2
 #define KSC014_TIMEOUT_SECONDS 2
 #define KSC015_TIMEOUT_SECONDS 2
+#define KSC016_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -148,6 +149,11 @@ static pthread_mutex_t g_ksc014_lock;
 static pthread_cond_t g_ksc014_condition;
 static sem_t g_ksc015_done;
 static int g_ksc015_exit_token;
+static sem_t g_ksc016_probe;
+static sem_t g_ksc016_done;
+static int g_ksc016_trywait_status;
+static int g_ksc016_trywait_errno;
+static int g_ksc016_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -1796,6 +1802,121 @@ static int ksc015_detached_thread(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-016: an empty semaphore's nonblocking wait must report EAGAIN, while
+ * a subsequently posted token must be acquired. The worker has all-active
+ * CPU affinity and its completion is bounded before the semaphore is reused. */
+static pthread_addr_t ksc016_trywait_worker(pthread_addr_t arg)
+{
+	(void)arg;
+	g_ksc016_trywait_status = sem_trywait(&g_ksc016_probe);
+	g_ksc016_trywait_errno = g_ksc016_trywait_status == 0 ? 0 : errno;
+	if (sem_post(&g_ksc016_done) != 0) {
+		return NULL;
+	}
+	return &g_ksc016_exit_token;
+}
+
+static int ksc016_semaphore_trywait(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int probe_ready = 0;
+	int done_ready = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-016: START semaphore trywait state (timeout=%d s)\n",
+	       KSC016_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-016: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	g_ksc016_trywait_status = 0;
+	g_ksc016_trywait_errno = 0;
+	if (sem_init(&g_ksc016_probe, 0, 0) != 0) {
+		printf("KSC-016: FAIL probe sem_init errno=%d\n", errno);
+		return -1;
+	}
+	probe_ready = 1;
+	if (sem_init(&g_ksc016_done, 0, 0) != 0) {
+		printf("KSC-016: FAIL done sem_init errno=%d\n", errno);
+		failed = 1;
+	} else {
+		done_ready = 1;
+	}
+	if (!failed && (status = pthread_attr_init(&attr)) != 0) {
+		printf("KSC-016: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-016: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	if (!failed && (status = pthread_create(&worker, &attr,
+						      ksc016_trywait_worker, NULL)) != 0) {
+		printf("KSC-016: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		created = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC016_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc016_done, &deadline) != 0) {
+			printf("KSC-016: FAIL worker completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-016: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0 || (!failed && result != &g_ksc016_exit_token)) {
+			printf("KSC-016: FAIL pthread_join status=%d result=%p\n", status,
+			       result);
+			failed = 1;
+		}
+	}
+	if (!failed && (g_ksc016_trywait_status != -1 ||
+				g_ksc016_trywait_errno != EAGAIN)) {
+		printf("KSC-016: FAIL empty trywait status=%d errno=%d expected=%d\n",
+		       g_ksc016_trywait_status, g_ksc016_trywait_errno, EAGAIN);
+		failed = 1;
+	}
+	if (!failed && (sem_post(&g_ksc016_probe) != 0 ||
+				sem_trywait(&g_ksc016_probe) != 0)) {
+		printf("KSC-016: FAIL posted trywait errno=%d\n", errno);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-016: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (done_ready && sem_destroy(&g_ksc016_done) != 0) {
+		printf("KSC-016: FAIL done sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	if (probe_ready && sem_destroy(&g_ksc016_probe) != 0) {
+		printf("KSC-016: FAIL probe sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-016: %s semaphore trywait empty=%d posted=0 mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc016_trywait_errno,
+	       (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -1855,6 +1976,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc015_detached_thread() != 0) {
+		failed++;
+	}
+	if (ksc016_semaphore_trywait() != 0) {
 		failed++;
 	}
 
