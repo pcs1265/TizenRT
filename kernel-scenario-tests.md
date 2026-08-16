@@ -27,7 +27,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-021 | `hello_main.c`: one all-active-CPU-affined worker compares its `pthread_self()` identity with itself, posts bounded completion, and is joined before attribute and semaphore cleanup. | `KSC-021: PASS pthread self identity status=1 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-022 | `hello_main.c`: one all-active-CPU-affined worker publishes its pending wait on an empty semaphore; creator observes it with a deadline, posts exactly one wake token, deadline-waits completion, and joins. | `KSC-022: PASS semaphore wake status=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-023 | `hello_main.c`: signal a condition variable before any waiter exists, then require a later wait to expire under its mutex. | `KSC-023: PASS condition signal is not retained status=110` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
-| KSC-024 | `hello_main.c`: acquire an unlocked mutex with `pthread_mutex_trylock()`, unlock it, and destroy it. | `KSC-024: PASS mutex trylock status=0` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | PENDING | pending |
+| KSC-024 | `hello_main.c`: acquire an unlocked mutex with `pthread_mutex_trylock()`, unlock it, and destroy it. | `KSC-024: PASS mutex trylock status=0` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -2338,3 +2338,24 @@ make: *** [post] Error 1
 ```
 
 `dbuild.sh` returned exit status 0 despite this post-link packaging failure (`TINYARA_PRESENT=1` is not evidence of a matching application image). No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or clean QEMU termination was possible. This is an explicit KSC-024 `dramboot_elf` blocker inherited from KSC-015, not a PASS; only `dramboot_elf_smp` remains pending. No new scenario was added because KSC-024's four-configuration gate remains open.
+
+## 2026-08-16 KSC-024 `dramboot_elf_smp` post-link blocker
+
+The final pending KSC-024 configuration was attempted with the exact required command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf_smp && ./dbuild.sh
+```
+
+The ELF-SMP configuration compiled the retained harness, linked `tinyara`, and copied `tinyara.bin`, but final application packaging could not produce a matching KSC-024 image because retained KSC-015 still references an unavailable pthread attribute API:
+
+```text
+Preparing final ../build/output/bin/app1 binary
+Verify ../build/output/bin/common
+Undefined Symbols in ../build/output/bin/common
+         U pthread_attr_setdetachstate    /root/tizenrt/apps/examples/hello/hello_main.c:1803
+make: *** [post] Error 1
+Makefile.unix:551: recipe for target 'post' failed
+```
+
+`dbuild.sh` returned exit status 0 despite this post-link packaging failure (`TINYARA_PRESENT=1` is not evidence of a matching application image). No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or clean QEMU termination was possible. This is an explicit KSC-024 `dramboot_elf_smp` blocker inherited from KSC-015, not a PASS. KSC-024 now has all four required configuration outcomes recorded. No new scenario was added because verification was pending at this cycle's start.
