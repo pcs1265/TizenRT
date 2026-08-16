@@ -27,6 +27,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-021 | `hello_main.c`: one all-active-CPU-affined worker compares its `pthread_self()` identity with itself, posts bounded completion, and is joined before attribute and semaphore cleanup. | `KSC-021: PASS pthread self identity status=1 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-022 | `hello_main.c`: one all-active-CPU-affined worker publishes its pending wait on an empty semaphore; creator observes it with a deadline, posts exactly one wake token, deadline-waits completion, and joins. | `KSC-022: PASS semaphore wake status=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-023 | `hello_main.c`: signal a condition variable before any waiter exists, then require a later wait to expire under its mutex. | `KSC-023: PASS condition signal is not retained status=110` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
+| KSC-024 | `hello_main.c`: acquire an unlocked mutex with `pthread_mutex_trylock()`, unlock it, and destroy it. | `KSC-024: PASS mutex trylock status=0` | PENDING | PENDING | PENDING | PENDING | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -2271,3 +2272,7 @@ Makefile.unix:551: recipe for target 'post' failed
 ```
 
 `dbuild.sh` returned exit status 0 despite this post-link packaging failure; the job observed `TINYARA_PRESENT=1`, which is not evidence of a matching application image. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or clean QEMU termination was possible. This is an explicit KSC-023 `dramboot_elf_smp` blocker inherited from KSC-015, not a PASS. KSC-023 now has all four required configuration outcomes recorded. No new scenario was added because verification was pending at this cycle's start.
+
+## 2026-08-16 KSC-024 added; verification pending
+
+After KSC-023 received its final explicit configuration blocker, every earlier TEST-ID had a recorded PASS, failure, or blocker in all four required configurations. KSC-024 is this cycle's exactly one new isolated scenario. It covers successful nonblocking mutex acquisition on an unlocked mutex, the reachable counterpart to KSC-008's contended `pthread_mutex_trylock()` `EBUSY` behavior. `hello` initializes a mutex, tries to lock it, requires zero, unlocks it, and destroys it while checking every return value. It has no worker, prints a TEST-ID START line including the harness's two-second timeout convention, and is compatible with single-core and SMP configurations. All four KSC-024 outcomes are pending; no KSC-025 may be added until each is recorded. The retained KSC-015 unresolved `pthread_attr_setdetachstate` reference is expected to prevent matching image production.

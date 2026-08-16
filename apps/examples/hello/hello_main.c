@@ -95,6 +95,7 @@
 #define KSC021_TIMEOUT_SECONDS 2
 #define KSC022_TIMEOUT_SECONDS 2
 #define KSC023_TIMEOUT_SECONDS 2
+#define KSC024_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -181,6 +182,7 @@ static int g_ksc022_worker_status;
 static int g_ksc022_exit_token;
 static pthread_mutex_t g_ksc023_lock;
 static pthread_cond_t g_ksc023_condition;
+static pthread_mutex_t g_ksc024_lock;
 
 /****************************************************************************
  * Private Functions
@@ -2632,6 +2634,45 @@ static int ksc023_condition_signal_no_waiter(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-024: trylock must acquire an unlocked mutex immediately.  This is the
+ * success counterpart to KSC-008's contended EBUSY path, with no worker left
+ * running and cleanup performed before returning to the harness. */
+static int ksc024_mutex_trylock_available(void)
+{
+	int lock_ready = 0;
+	int lock_held = 0;
+	int trylock_status = -1;
+	int status;
+	int failed = 0;
+
+	printf("KSC-024: START mutex trylock available (timeout=%d s)\n",
+	       KSC024_TIMEOUT_SECONDS);
+	status = pthread_mutex_init(&g_ksc024_lock, NULL);
+	if (status != 0) {
+		printf("KSC-024: FAIL pthread_mutex_init status=%d\n", status);
+		return -1;
+	}
+	lock_ready = 1;
+	trylock_status = pthread_mutex_trylock(&g_ksc024_lock);
+	if (trylock_status != 0) {
+		printf("KSC-024: FAIL pthread_mutex_trylock status=%d\n", trylock_status);
+		failed = 1;
+	} else {
+		lock_held = 1;
+	}
+	if (lock_held && (status = pthread_mutex_unlock(&g_ksc024_lock)) != 0) {
+		printf("KSC-024: FAIL pthread_mutex_unlock status=%d\n", status);
+		failed = 1;
+	}
+	if (lock_ready && (status = pthread_mutex_destroy(&g_ksc024_lock)) != 0) {
+		printf("KSC-024: FAIL pthread_mutex_destroy status=%d\n", status);
+		failed = 1;
+	}
+	printf("KSC-024: %s mutex trylock status=%d\n",
+	       failed ? "FAIL" : "PASS", trylock_status);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2715,6 +2756,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc023_condition_signal_no_waiter() != 0) {
+		failed++;
+	}
+	if (ksc024_mutex_trylock_available() != 0) {
 		failed++;
 	}
 
