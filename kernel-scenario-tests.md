@@ -26,6 +26,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-020 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker publishes its blocking acquisition attempt; creator uses two-second deadlines to observe the attempt and post-release completion, then joins it. | `KSC-020: PASS mutex blocking handoff status=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-021 | `hello_main.c`: one all-active-CPU-affined worker compares its `pthread_self()` identity with itself, posts bounded completion, and is joined before attribute and semaphore cleanup. | `KSC-021: PASS pthread self identity status=1 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-022 | `hello_main.c`: one all-active-CPU-affined worker publishes its pending wait on an empty semaphore; creator observes it with a deadline, posts exactly one wake token, deadline-waits completion, and joins. | `KSC-022: PASS semaphore wake status=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
+| KSC-023 | `hello_main.c`: signal a condition variable before any waiter exists, then require a later wait to expire under its mutex. | `KSC-023: PASS condition signal is not retained status=110` | BLOCKED (KSC-015 link) | PENDING | PENDING | PENDING | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -2183,3 +2184,28 @@ Makefile.unix:551: recipe for target 'post' failed
 ```
 
 `dbuild.sh` returned exit status 0 despite the post-link packaging failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or clean QEMU termination was possible. This is an explicit KSC-022 `dramboot_elf_smp` blocker inherited from KSC-015, not a PASS. KSC-022 now has all four required outcomes recorded; no new scenario was added because verification was pending at this cycle's start.
+
+## 2026-08-16 KSC-023 added; verification pending
+
+All earlier TEST-IDs have four recorded PASS, failure, or explicit blocker outcomes, so KSC-023 is this cycle's exactly one new isolated scenario. It covers the condition-variable lost-signal behavior not represented by KSC-003's predicate signal, KSC-009's broadcast, or KSC-014's unsignaled timeout: `hello` signals a newly initialized condition variable while it has no waiters, then locks its mutex and requires a later `pthread_cond_timedwait()` using a two-second absolute `CLOCK_REALTIME` deadline to return `ETIMEDOUT`. Every initialization, signal, lock, timed wait, unlock, and destruction return value is checked. The scenario has no worker and remains compatible with single-core and SMP configurations. All four KSC-023 outcomes are pending; no KSC-024 may be added until each is recorded. The retained KSC-015 unresolved `pthread_attr_setdetachstate` reference is expected to prevent matching image production.
+
+## 2026-08-16 KSC-023 `dramboot_flat` link blocker
+
+The required configuration/build was attempted with the exact command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+The new source compiled successfully (`CC: hello_main.c` and `AR: hello_main.o`), including KSC-023. The final kernel link could not produce a matching image because retained KSC-015 still references an unavailable pthread attribute API:
+
+```text
+LD: tinyara
+arm-none-eabi-ld: /root/tizenrt/os/../build/output/libraries/libapps.a(hello_main.o): in function `ksc015_detached_thread':
+/root/tizenrt/apps/examples/hello/hello_main.c:1801: undefined reference to `pthread_attr_setdetachstate'
+Makefile:207: recipe for target '../build/output/bin/tinyara' failed
+make[1]: *** [../build/output/bin/tinyara] Error 1
+make: *** [pass2] Error 2
+```
+
+`dbuild.sh` returned exit status 0 despite this linker failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or clean QEMU termination was possible. This is an explicit KSC-023 `dramboot_flat` blocker inherited from KSC-015, not a PASS; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending, so no new scenario was added.

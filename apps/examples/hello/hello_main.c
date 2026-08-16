@@ -94,6 +94,7 @@
 #define KSC020_TIMEOUT_SECONDS 2
 #define KSC021_TIMEOUT_SECONDS 2
 #define KSC022_TIMEOUT_SECONDS 2
+#define KSC023_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -178,6 +179,8 @@ static sem_t g_ksc022_release;
 static sem_t g_ksc022_done;
 static int g_ksc022_worker_status;
 static int g_ksc022_exit_token;
+static pthread_mutex_t g_ksc023_lock;
+static pthread_cond_t g_ksc023_condition;
 
 /****************************************************************************
  * Private Functions
@@ -2562,6 +2565,73 @@ static int ksc022_semaphore_wake_handoff(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-023: a condition signal with no waiters must not be retained for a
+ * later waiter.  The later timed wait bounds the check and verifies that the
+ * condition remains unsignaled. */
+static int ksc023_condition_signal_no_waiter(void)
+{
+	struct timespec deadline;
+	int lock_ready = 0;
+	int condition_ready = 0;
+	int lock_held = 0;
+	int wait_status = -1;
+	int status;
+	int failed = 0;
+
+	printf("KSC-023: START condition signal without waiter (timeout=%d s)\n",
+	       KSC023_TIMEOUT_SECONDS);
+	status = pthread_mutex_init(&g_ksc023_lock, NULL);
+	if (status != 0) {
+		printf("KSC-023: FAIL pthread_mutex_init status=%d\n", status);
+		return -1;
+	}
+	lock_ready = 1;
+	status = pthread_cond_init(&g_ksc023_condition, NULL);
+	if (status != 0) {
+		printf("KSC-023: FAIL pthread_cond_init status=%d\n", status);
+		failed = 1;
+	} else {
+		condition_ready = 1;
+	}
+	if (!failed && (status = pthread_cond_signal(&g_ksc023_condition)) != 0) {
+		printf("KSC-023: FAIL pthread_cond_signal status=%d\n", status);
+		failed = 1;
+	}
+	if (!failed && (status = pthread_mutex_lock(&g_ksc023_lock)) != 0) {
+		printf("KSC-023: FAIL pthread_mutex_lock status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		lock_held = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+		printf("KSC-023: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	} else if (!failed) {
+		deadline.tv_sec += KSC023_TIMEOUT_SECONDS;
+		wait_status = pthread_cond_timedwait(&g_ksc023_condition,
+							     &g_ksc023_lock, &deadline);
+		if (wait_status != ETIMEDOUT) {
+			printf("KSC-023: FAIL condition status=%d\n", wait_status);
+			failed = 1;
+		}
+	}
+	if (lock_held && (status = pthread_mutex_unlock(&g_ksc023_lock)) != 0) {
+		printf("KSC-023: FAIL pthread_mutex_unlock status=%d\n", status);
+		failed = 1;
+	}
+	if (condition_ready && (status = pthread_cond_destroy(&g_ksc023_condition)) != 0) {
+		printf("KSC-023: FAIL pthread_cond_destroy status=%d\n", status);
+		failed = 1;
+	}
+	if (lock_ready && (status = pthread_mutex_destroy(&g_ksc023_lock)) != 0) {
+		printf("KSC-023: FAIL pthread_mutex_destroy status=%d\n", status);
+		failed = 1;
+	}
+	printf("KSC-023: %s condition signal is not retained status=%d\n",
+	       failed ? "FAIL" : "PASS", wait_status);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2642,6 +2712,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc022_semaphore_wake_handoff() != 0) {
+		failed++;
+	}
+	if (ksc023_condition_signal_no_waiter() != 0) {
 		failed++;
 	}
 
