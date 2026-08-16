@@ -97,6 +97,7 @@
 #define KSC023_TIMEOUT_SECONDS 2
 #define KSC024_TIMEOUT_SECONDS 2
 #define KSC025_TIMEOUT_SECONDS 2
+#define KSC026_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -190,6 +191,11 @@ static sem_t g_ksc025_release;
 static sem_t g_ksc025_done;
 static int g_ksc025_worker_status;
 static int g_ksc025_exit_token;
+static pthread_key_t g_ksc026_key;
+static sem_t g_ksc026_destructed;
+static int g_ksc026_destructor_count;
+static int g_ksc026_value;
+static int g_ksc026_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -2843,6 +2849,120 @@ static int ksc025_rwlock_timedread_timeout(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-026: a non-NULL thread-specific value must invoke its key destructor
+ * when an all-active-CPU-affined worker exits.  This covers the exit cleanup
+ * path separately from KSC-004's set/get and key deletion path. */
+static void ksc026_key_destructor(FAR void *value)
+{
+	if (value == &g_ksc026_value) {
+		g_ksc026_destructor_count++;
+		(void)sem_post(&g_ksc026_destructed);
+	}
+}
+
+static pthread_addr_t ksc026_destructor_worker(pthread_addr_t arg)
+{
+	int status;
+
+	(void)arg;
+	status = pthread_setspecific(g_ksc026_key, &g_ksc026_value);
+	return status == 0 ? &g_ksc026_exit_token : NULL;
+}
+
+static int ksc026_tls_destructor(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int key_ready = 0;
+	int done_ready = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-026: START thread-specific destructor (timeout=%d s)\n",
+	       KSC026_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-026: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	g_ksc026_destructor_count = 0;
+	if (sem_init(&g_ksc026_destructed, 0, 0) != 0) {
+		printf("KSC-026: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+	done_ready = 1;
+	if ((status = pthread_key_create(&g_ksc026_key, ksc026_key_destructor)) != 0) {
+		printf("KSC-026: FAIL pthread_key_create status=%d\n", status);
+		failed = 1;
+	} else {
+		key_ready = 1;
+	}
+	if (!failed && (status = pthread_attr_init(&attr)) != 0) {
+		printf("KSC-026: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-026: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	if (!failed && (status = pthread_create(&worker, &attr,
+						      ksc026_destructor_worker, NULL)) != 0) {
+		printf("KSC-026: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		created = 1;
+	}
+	if (created && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC026_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc026_destructed, &deadline) != 0) {
+			printf("KSC-026: FAIL destructor completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (created) {
+		printf("KSC-026: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0 || result != &g_ksc026_exit_token) {
+			printf("KSC-026: FAIL pthread_join status=%d result=%p\n", status,
+			       result);
+			failed = 1;
+		}
+	}
+	if (g_ksc026_destructor_count != 1) {
+		printf("KSC-026: FAIL destructor count=%d expected=1\n",
+		       g_ksc026_destructor_count);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-026: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (key_ready && (status = pthread_key_delete(g_ksc026_key)) != 0) {
+		printf("KSC-026: FAIL pthread_key_delete status=%d\n", status);
+		failed = 1;
+	}
+	if (done_ready && sem_destroy(&g_ksc026_destructed) != 0) {
+		printf("KSC-026: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-026: %s thread-specific destructor count=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc026_destructor_count,
+	       (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2932,6 +3052,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc025_rwlock_timedread_timeout() != 0) {
+		failed++;
+	}
+	if (ksc026_tls_destructor() != 0) {
 		failed++;
 	}
 

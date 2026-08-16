@@ -29,6 +29,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-023 | `hello_main.c`: signal a condition variable before any waiter exists, then require a later wait to expire under its mutex. | `KSC-023: PASS condition signal is not retained status=110` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-024 | `hello_main.c`: acquire an unlocked mutex with `pthread_mutex_trylock()`, unlock it, and destroy it. | `KSC-024: PASS mutex trylock status=0` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-025 | `hello_main.c`: an all-active-CPU-affined worker holds a write lock while the creator requires `pthread_rwlock_timedrdlock()` to expire, then releases and joins the worker. | `KSC-025: PASS rwlock timedread status=110 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
+| KSC-026 | `hello_main.c`: an all-active-CPU-affined worker sets a non-NULL pthread TLS value and exits; its key destructor posts bounded completion, after which the creator joins and checks exactly one destructor invocation. | `KSC-026: PASS thread-specific destructor count=1 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | pending | pending | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -2448,3 +2449,28 @@ Makefile.unix:551: recipe for target 'post' failed
 ```
 
 `dbuild.sh` returned exit status 0 despite this post-link packaging failure (`TINYARA_PRESENT=1` is not evidence of a matching application image). No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or clean QEMU termination was possible. This is an explicit KSC-025 `dramboot_elf_smp` blocker inherited from KSC-015, not a PASS. KSC-025 now has all four required outcomes recorded as blockers; no new scenario was added because verification was pending at this cycle's start.
+
+## 2026-08-16 KSC-026 added; verification pending
+
+After KSC-025 received its final explicit configuration blocker, every earlier TEST-ID had a recorded PASS, failure, or explicit blocker in all four configurations. KSC-026 is this cycle's exactly one new isolated scenario. It covers pthread TLS destructor execution on worker exit, distinct from KSC-004's set/get TLS behavior: one worker with an affinity mask covering every CPU derived from `CONFIG_SMP_NCPUS` sets a non-NULL value for a key with a destructor and returns. The destructor posts a completion semaphore; the creator uses a two-second absolute deadline to observe it, joins the worker, requires exactly one destructor execution, and destroys the attribute, key, and semaphore while validating their return codes. Its printed mask provides single-core and SMP affinity evidence. All four KSC-026 outcomes are pending; no KSC-027 may be added until each is recorded. The retained KSC-015 unresolved `pthread_attr_setdetachstate` reference is expected to prevent a matching image from being produced.
+
+## 2026-08-16 KSC-026 `dramboot_flat` link blocker
+
+The first pending KSC-026 configuration was attempted with the exact required command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+The complete retained harness, including KSC-026, compiled successfully (`CC: hello_main.c` followed by `AR: hello_main.o`). The final kernel link could not produce a matching flat image because the retained KSC-015 detached-thread scenario still references an unavailable pthread attribute API:
+
+```text
+LD: tinyara
+arm-none-eabi-ld: /root/tizenrt/os/../build/output/libraries/libapps.a(hello_main.o): in function `ksc015_detached_thread':
+/root/tizenrt/apps/examples/hello/hello_main.c:1816: undefined reference to `pthread_attr_setdetachstate'
+Makefile:207: recipe for target '../build/output/bin/tinyara' failed
+make[1]: *** [../build/output/bin/tinyara] Error 1
+make: *** [pass2] Error 2
+```
+
+`dbuild.sh` returned exit status 0 despite the linker failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or clean QEMU termination was possible. This is an explicit KSC-026 `dramboot_flat` blocker inherited from KSC-015, not a PASS; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending and must be attempted before adding another scenario.
