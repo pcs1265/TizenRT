@@ -60,4 +60,23 @@ KSC-002 output, and cleanly terminate this job's QEMU for all four modes.
 
 | TEST-ID | Source location | Kernel behavior / trigger | Expected outcome | `dramboot_flat` | `dramboot_flat_smp` | `dramboot_elf` | `dramboot_elf_smp` | State |
 |---|---|---|---|---|---|---|---|---|
-| KSC-003 | `apps/examples/hello/hello_main.c:292-405` | Create one pthread which locks a mutex, changes a shared predicate, and signals its condition variable. The creator waits in a predicate loop with a 2-second absolute deadline, joins the worker, and destroys the condition variable and mutex. Failures cancel/join the created worker before destruction. | `KSC-003: PASS condition predicate=1` and harness PASS. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | Pending build/refresh/required `./run_qemu.sh` + `hello` capture. | Pending build/refresh/required `./run_qemu.sh` + `hello` capture. | **pending verification** |
+| KSC-003 | `apps/examples/hello/hello_main.c:292-405` | Create one pthread which locks a mutex, changes a shared predicate, and signals its condition variable. The creator waits in a predicate loop with a 2-second absolute deadline, joins the worker, and destroys the condition variable and mutex. Failures cancel/join the created worker before destruction. | `KSC-003: PASS condition predicate=1` and harness PASS. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | **PASS**: exact `cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf && ./dbuild.sh` completed; image refresh wrote `s1_boot.bin`, kernel, common, app1, and bootparam; literal `./run_qemu.sh` reached `TASH>>`. `hello` printed KSC-001/002/003 PASS and `KSC: harness PASS (0 failed)` on 2026-08-16 03:04 UTC; this job then sent Ctrl-A x and QEMU returned `QEMU: Terminated` (exit 0). | Pending build/refresh/required `./run_qemu.sh` + `hello` capture. | **pending verification** |
+
+### 2026-08-16 KSC-003 `dramboot_elf` evidence
+
+```text
+TASH>> hello
+KSC-003: START condition predicate wakeup (timeout=2 s)
+KSC-003: PASS condition predicate=1
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+The matched image was refreshed with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+The remaining KSC-003 configuration is `dramboot_elf_smp`. No new scenario was
+added because this TEST-ID still has pending verification.
