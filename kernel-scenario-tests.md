@@ -55,3 +55,9 @@ Is another process using the image [qemu_blk.bin]?
 job did not create it. The next run must clear or otherwise isolate that lock,
 then build, refresh, invoke `./run_qemu.sh`, send `hello`, capture KSC-001 and
 KSC-002 output, and cleanly terminate this job's QEMU for all four modes.
+
+## KSC-003 — condition-variable predicate wakeup
+
+| TEST-ID | Source location | Kernel behavior / trigger | Expected outcome | `dramboot_flat` | `dramboot_flat_smp` | `dramboot_elf` | `dramboot_elf_smp` | State |
+|---|---|---|---|---|---|---|---|---|
+| KSC-003 | `apps/examples/hello/hello_main.c:292-405` | Create one pthread which locks a mutex, changes a shared predicate, and signals its condition variable. The creator waits in a predicate loop with a 2-second absolute deadline, joins the worker, and destroys the condition variable and mutex. Failures cancel/join the created worker before destruction. | `KSC-003: PASS condition predicate=1` and harness PASS. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | Pending build/refresh/required `./run_qemu.sh` + `hello` capture. | Pending build/refresh/required `./run_qemu.sh` + `hello` capture. | **pending verification** |

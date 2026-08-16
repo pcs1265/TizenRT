@@ -70,6 +70,7 @@
 #define KSC002_TIMEOUT_SECONDS 2
 #define KSC002_WORKER_COUNT 2
 #define KSC002_INCREMENTS_PER_WORKER 32
+#define KSC003_TIMEOUT_SECONDS 2
 
 /****************************************************************************
  * Private Data
@@ -81,6 +82,9 @@ static sem_t g_ksc002_start;
 static sem_t g_ksc002_done;
 static pthread_mutex_t g_ksc002_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_ksc002_counter;
+static pthread_mutex_t g_ksc003_lock;
+static pthread_cond_t g_ksc003_ready;
+static int g_ksc003_predicate;
 
 /****************************************************************************
  * Private Functions
@@ -285,6 +289,117 @@ static int ksc002_mutex_contention(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-003 worker: update the predicate while holding its associated lock. */
+
+static pthread_addr_t ksc003_worker(pthread_addr_t arg)
+{
+	int status;
+
+	(void)arg;
+	status = pthread_mutex_lock(&g_ksc003_lock);
+	if (status != 0) {
+		return NULL;
+	}
+	g_ksc003_predicate = 1;
+	status = pthread_cond_signal(&g_ksc003_ready);
+	if (pthread_mutex_unlock(&g_ksc003_lock) != 0) {
+		return NULL;
+	}
+	return status == 0 ? &g_ksc003_predicate : NULL;
+}
+
+/* KSC-003: condition-variable predicate wakeup.  The waiter checks its
+ * predicate under the mutex with a finite absolute timeout.  On failure, its
+ * worker is cancelled and joined before the synchronization state is removed.
+ */
+
+static int ksc003_condition_wakeup(void)
+{
+	struct timespec deadline;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	int created = 0;
+	int locked = 0;
+	int status;
+	int failed = 0;
+
+	printf("KSC-003: START condition predicate wakeup (timeout=%d s)\n",
+	       KSC003_TIMEOUT_SECONDS);
+	g_ksc003_predicate = 0;
+	status = pthread_mutex_init(&g_ksc003_lock, NULL);
+	if (status != 0) {
+		printf("KSC-003: FAIL pthread_mutex_init status=%d\n", status);
+		return -1;
+	}
+	status = pthread_cond_init(&g_ksc003_ready, NULL);
+	if (status != 0) {
+		printf("KSC-003: FAIL pthread_cond_init status=%d\n", status);
+		(void)pthread_mutex_destroy(&g_ksc003_lock);
+		return -1;
+	}
+	status = pthread_create(&worker, NULL, ksc003_worker, NULL);
+	if (status != 0) {
+		printf("KSC-003: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	} else {
+		created = 1;
+		status = pthread_mutex_lock(&g_ksc003_lock);
+		if (status != 0) {
+			printf("KSC-003: FAIL pthread_mutex_lock status=%d\n", status);
+			failed = 1;
+		} else {
+			locked = 1;
+			if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+				printf("KSC-003: FAIL clock_gettime errno=%d\n", errno);
+				failed = 1;
+			} else {
+				deadline.tv_sec += KSC003_TIMEOUT_SECONDS;
+				while (!failed && !g_ksc003_predicate) {
+					status = pthread_cond_timedwait(&g_ksc003_ready,
+											&g_ksc003_lock, &deadline);
+					if (status != 0) {
+						printf("KSC-003: FAIL pthread_cond_timedwait status=%d\n",
+						       status);
+						failed = 1;
+					}
+				}
+			}
+			if (pthread_mutex_unlock(&g_ksc003_lock) != 0) {
+				printf("KSC-003: FAIL pthread_mutex_unlock\n");
+				failed = 1;
+			}
+			locked = 0;
+		}
+	}
+	if (locked) {
+		(void)pthread_mutex_unlock(&g_ksc003_lock);
+	}
+	if (failed && created) {
+		status = pthread_cancel(worker);
+		if (status != 0) {
+			printf("KSC-003: cleanup pthread_cancel status=%d\n", status);
+		}
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0) {
+			printf("KSC-003: FAIL pthread_join status=%d\n", status);
+			failed = 1;
+		} else if (!failed && result != &g_ksc003_predicate) {
+			printf("KSC-003: FAIL worker result=%p\n", result);
+			failed = 1;
+		}
+	}
+	if (pthread_cond_destroy(&g_ksc003_ready) != 0 ||
+	    pthread_mutex_destroy(&g_ksc003_lock) != 0) {
+		printf("KSC-003: FAIL synchronization destroy\n");
+		failed = 1;
+	}
+	printf("KSC-003: %s condition predicate=%d\n",
+	       failed ? "FAIL" : "PASS", g_ksc003_predicate);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -305,6 +420,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc002_mutex_contention() != 0) {
+		failed++;
+	}
+	if (ksc003_condition_wakeup() != 0) {
 		failed++;
 	}
 
