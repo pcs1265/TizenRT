@@ -18,7 +18,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-012 | `hello_main.c`: an initially empty semaphore is waited with an absolute two-second deadline and then destroyed. | `KSC-012: PASS semaphore timeout errno=110` | PASS | PASS | PASS | PASS | pass |
 | KSC-013 | `hello_main.c`: an all-active-CPU-affined worker recursively locks and unlocks a `PTHREAD_MUTEX_RECURSIVE` mutex twice, reports completion through a two-second timed semaphore wait, and is joined before mutex/attribute cleanup. | `KSC-013: PASS recursive mutex status=0 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-014 | `hello_main.c`: creator locks an unsignaled condition variable's mutex, uses `pthread_cond_timedwait()` with an absolute two-second deadline, and destroys the condition variable and mutex after the expected timeout. | `KSC-014: PASS condition timeout status=110` | PASS | PASS | PASS | PASS | pass |
-| KSC-015 | `hello_main.c`: an all-active-CPU-affined worker is created detached, posts completion, and returns; creator uses a two-second semaphore deadline and cleans up the thread attribute and semaphore. | `KSC-015: PASS detached completion mask=...` and affinity evidence. | pending | pending | pending | pending | pending |
+| KSC-015 | `hello_main.c`: an all-active-CPU-affined worker is created detached, posts completion, and returns; creator uses a two-second semaphore deadline and cleans up the thread attribute and semaphore. | `KSC-015: PASS detached completion mask=...` and affinity evidence. | BLOCKED (link) | pending | pending | pending | blocked |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1486,3 +1486,22 @@ The SMP affinity evidence from the same run was `mask=0xf cpus=4` for KSC-004 th
 ## 2026-08-16 KSC-015 added; verification pending
 
 KSC-015 covers detached pthread lifecycle completion, an unrepresented reachable behavior after the prior join-based lifecycle, synchronization, locking, TLS, and timeout scenarios. Its worker receives an affinity mask containing every CPU in `CONFIG_SMP_NCPUS`, prints that mask as evidence, posts one completion semaphore, and returns detached. The creator bounds the completion observation with a two-second absolute deadline and cleans up its semaphore and thread attributes. No configuration has yet built, refreshed, booted, or invoked this new scenario; all four outcomes are pending.
+
+## 2026-08-16 KSC-015 `dramboot_flat` build blocker
+
+The required configuration/build was attempted with the exact command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+Configuration and compilation proceeded, but the final link failed while resolving KSC-015:
+
+```text
+arm-none-eabi-ld: /root/tizenrt/os/../build/output/libraries/libapps.a(hello_main.o): in function `ksc015_detached_thread':
+/root/tizenrt/apps/examples/hello/hello_main.c:1768: undefined reference to `pthread_attr_setdetachstate'
+make[1]: *** [../build/output/bin/tinyara] Error 1
+make: *** [pass2] Error 2
+```
+
+The wrapper returned exit status 0 despite these linker errors. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible, so this result is recorded as an explicit `dramboot_flat` blocker rather than PASS. The other three configurations remain pending; no new scenario was added.
