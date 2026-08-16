@@ -72,6 +72,8 @@
 #define KSC002_INCREMENTS_PER_WORKER 32
 #define KSC003_TIMEOUT_SECONDS 2
 #define KSC004_TIMEOUT_SECONDS 2
+#define KSC005_TIMEOUT_SECONDS 2
+#define KSC005_WORKER_COUNT 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -93,6 +95,9 @@ static int g_ksc003_predicate;
 static sem_t g_ksc004_ready;
 static pthread_key_t g_ksc004_key;
 static int g_ksc004_value;
+static sem_t g_ksc005_done;
+static pthread_once_t g_ksc005_once = PTHREAD_ONCE_INIT;
+static int g_ksc005_init_count;
 
 /****************************************************************************
  * Private Functions
@@ -501,6 +506,123 @@ static int ksc004_thread_specific_data(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-005: concurrent pthread_once callers must observe exactly one completed
+ * initializer. Both workers use the all-active-CPU affinity mask, and the
+ * creator bounds their completions before joining them. */
+static void ksc005_initializer(void)
+{
+	g_ksc005_init_count++;
+}
+
+static pthread_addr_t ksc005_worker(pthread_addr_t arg)
+{
+	int status;
+
+	(void)arg;
+	status = pthread_once(&g_ksc005_once, ksc005_initializer);
+	if (status != 0 || g_ksc005_init_count != 1 ||
+		sem_post(&g_ksc005_done) != 0) {
+		return NULL;
+	}
+	return &g_ksc005_init_count;
+}
+
+static int ksc005_once_concurrency(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t workers[KSC005_WORKER_COUNT];
+	pthread_addr_t result;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int completed = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-005: START pthread_once concurrency (timeout=%d s)\n",
+	       KSC005_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-005: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	if (sem_init(&g_ksc005_done, 0, 0) != 0) {
+		printf("KSC-005: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+	status = pthread_attr_init(&attr);
+	if (status != 0) {
+		printf("KSC-005: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-005: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	for (i = 0; !failed && i < KSC005_WORKER_COUNT; i++) {
+		status = pthread_create(&workers[i], &attr, ksc005_worker, NULL);
+		if (status != 0) {
+			printf("KSC-005: FAIL pthread_create[%d] status=%d\n", i, status);
+			failed = 1;
+			break;
+		}
+		created++;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC005_TIMEOUT_SECONDS;
+		while (!failed && completed < KSC005_WORKER_COUNT) {
+			if (sem_timedwait(&g_ksc005_done, &deadline) != 0) {
+				printf("KSC-005: FAIL worker completion errno=%d\n", errno);
+				failed = 1;
+			} else {
+				completed++;
+			}
+		}
+	} else if (!failed) {
+		printf("KSC-005: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created != KSC005_WORKER_COUNT) {
+		failed = 1;
+	}
+	if (failed) {
+		for (i = 0; i < created; i++) {
+			(void)pthread_cancel(workers[i]);
+		}
+	}
+	for (i = 0; i < created; i++) {
+		result = NULL;
+		status = pthread_join(workers[i], &result);
+		if (status != 0 || (!failed && result != &g_ksc005_init_count)) {
+			printf("KSC-005: FAIL pthread_join[%d] status=%d result=%p\n",
+			       i, status, result);
+			failed = 1;
+		}
+	}
+	if (g_ksc005_init_count != 1) {
+		printf("KSC-005: FAIL initializer count=%d\n", g_ksc005_init_count);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-005: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc005_done) != 0) {
+		printf("KSC-005: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-005: %s pthread_once initializer count=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc005_init_count,
+	       (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -527,6 +649,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc004_thread_specific_data() != 0) {
+		failed++;
+	}
+	if (ksc005_once_concurrency() != 0) {
 		failed++;
 	}
 
