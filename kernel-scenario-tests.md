@@ -18,7 +18,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-012 | `hello_main.c`: an initially empty semaphore is waited with an absolute two-second deadline and then destroyed. | `KSC-012: PASS semaphore timeout errno=110` | PASS | PASS | PASS | PASS | pass |
 | KSC-013 | `hello_main.c`: an all-active-CPU-affined worker recursively locks and unlocks a `PTHREAD_MUTEX_RECURSIVE` mutex twice, reports completion through a two-second timed semaphore wait, and is joined before mutex/attribute cleanup. | `KSC-013: PASS recursive mutex status=0 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-014 | `hello_main.c`: creator locks an unsignaled condition variable's mutex, uses `pthread_cond_timedwait()` with an absolute two-second deadline, and destroys the condition variable and mutex after the expected timeout. | `KSC-014: PASS condition timeout status=110` | PASS | PASS | PASS | PASS | pass |
-| KSC-015 | `hello_main.c`: an all-active-CPU-affined worker is created detached, posts completion, and returns; creator uses a two-second semaphore deadline and cleans up the thread attribute and semaphore. | `KSC-015: PASS detached completion mask=...` and affinity evidence. | BLOCKED (link) | BLOCKED (link) | BLOCKED (post-link) | pending | blocked |
+| KSC-015 | `hello_main.c`: an all-active-CPU-affined worker is created detached, posts completion, and returns; creator uses a two-second semaphore deadline and cleans up the thread attribute and semaphore. | `KSC-015: PASS detached completion mask=...` and affinity evidence. | BLOCKED (link) | BLOCKED (link) | BLOCKED (post-link) | BLOCKED (post-link) | blocked |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1545,3 +1545,24 @@ make: *** [post] Error 1
 ```
 
 The `dbuild.sh` wrapper returned status 0 despite this post-link failure; the existing `tinyara` artifact was therefore not evidence of a successful matching application image. No image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was attempted. This is an explicit `dramboot_elf` blocker rather than PASS. Only `dramboot_elf_smp` remains pending, and no new scenario was added.
+
+## 2026-08-16 KSC-015 `dramboot_elf_smp` post-link blocker
+
+The required configuration/build was attempted with the exact command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf_smp && ./dbuild.sh
+```
+
+Compilation and the kernel `tinyara` link completed, but ELF packaging rejected the same unresolved detached-thread attribute API:
+
+```text
+Preparing final ../build/output/bin/app1 binary
+Verify ../build/output/bin/common
+Undefined Symbols in ../build/output/bin/common
+         U pthread_attr_setdetachstate    /root/tizenrt/apps/examples/hello/hello_main.c:1768
+Makefile.unix:551: recipe for target 'post' failed
+make: *** [post] Error 1
+```
+
+The `dbuild.sh` wrapper returned status 0 despite the post-link failure. The retained `tinyara` image is not a successful matching KSC-015 application image, so no image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was attempted. This is an explicit `dramboot_elf_smp` blocker rather than PASS. KSC-015 now has all four required configuration outcomes recorded as blockers; no new scenario was added this cycle.
