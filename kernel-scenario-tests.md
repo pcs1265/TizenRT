@@ -16,7 +16,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-010 | `hello_main.c`: creator holds a read lock while one all-active-CPU-affined worker calls `pthread_rwlock_trywrlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-010: PASS rwlock trywrite status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-012 | `hello_main.c`: an initially empty semaphore is waited with an absolute two-second deadline and then destroyed. | `KSC-012: PASS semaphore timeout errno=110` | PASS | PASS | PASS | PASS | pass |
-| KSC-013 | `hello_main.c`: an all-active-CPU-affined worker recursively locks and unlocks a `PTHREAD_MUTEX_RECURSIVE` mutex twice, reports completion through a two-second timed semaphore wait, and is joined before mutex/attribute cleanup. | `KSC-013: PASS recursive mutex status=0 mask=...` and affinity evidence. | PASS | pending | pending | pending | pending |
+| KSC-013 | `hello_main.c`: an all-active-CPU-affined worker recursively locks and unlocks a `PTHREAD_MUTEX_RECURSIVE` mutex twice, reports completion through a two-second timed semaphore wait, and is joined before mutex/attribute cleanup. | `KSC-013: PASS recursive mutex status=0 mask=...` and affinity evidence. | PASS | PASS | pending | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1271,3 +1271,36 @@ QEMU: Terminated
 ```
 
 QEMU exited 0 after Ctrl-A x. KSC-013 passes `dramboot_flat`; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending, so no new scenario may be added.
+
+## 2026-08-16 KSC-013 `dramboot_flat_smp` evidence; KSC-007 regression reproduced
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat_smp && ./dbuild.sh
+```
+
+The matching flat-SMP artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-007: START barrier serial election (timeout=2 s)
+KSC-007: worker affinity mask=0xf cpus=4
+KSC-007: FAIL barrier completion errno=110
+KSC-007: FAIL barrier result[0]=-1
+KSC-007: FAIL barrier result[1]=-1
+KSC-007: FAIL serial count=0
+KSC-007: FAIL barrier serial count=0 mask=0xf
+KSC-013: START recursive mutex ownership (timeout=2 s)
+KSC-013: worker affinity mask=0xf cpus=4
+KSC-013: PASS recursive mutex status=0 mask=0xf
+KSC: harness FAIL (1 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-013 passes `dramboot_flat_smp`: the selected configuration built and refreshed, the literal root-level run booted to TASH, KSC-013 printed its TEST-ID PASS and all-active-CPU affinity evidence, and QEMU terminated cleanly. The established reachable KSC-007 barrier timeout reproduced, so the aggregate harness failed; KSC-013 `dramboot_elf` and `dramboot_elf_smp` remain pending and no new scenario was added.
