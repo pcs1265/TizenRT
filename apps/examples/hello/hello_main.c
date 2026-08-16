@@ -90,6 +90,7 @@
 #define KSC016_TIMEOUT_SECONDS 2
 #define KSC017_TIMEOUT_SECONDS 2
 #define KSC018_TIMEOUT_SECONDS 2
+#define KSC019_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -160,6 +161,7 @@ static sem_t g_ksc017_start;
 static sem_t g_ksc017_done;
 static int g_ksc017_exit_token;
 static sem_t g_ksc018_value;
+static sem_t g_ksc019_value;
 
 /****************************************************************************
  * Private Functions
@@ -2096,6 +2098,77 @@ static int ksc018_semaphore_value(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-019: two queued semaphore tokens must be counted and consumed in
+ * sequence.  It extends KSC-018's single-token accounting with bounded waits. */
+static int ksc019_semaphore_multiple_tokens(void)
+{
+	struct timespec deadline;
+	int initial = -1;
+	int middle = -1;
+	int final = -1;
+	int failed = 0;
+
+	printf("KSC-019: START semaphore multiple tokens (timeout=%d s)\n",
+	       KSC019_TIMEOUT_SECONDS);
+	if (sem_init(&g_ksc019_value, 0, 0) != 0) {
+		printf("KSC-019: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+	if (sem_post(&g_ksc019_value) != 0 ||
+		sem_post(&g_ksc019_value) != 0) {
+		printf("KSC-019: FAIL sem_post errno=%d\n", errno);
+		failed = 1;
+	}
+	if (!failed && sem_getvalue(&g_ksc019_value, &initial) != 0) {
+		printf("KSC-019: FAIL initial sem_getvalue errno=%d\n", errno);
+		failed = 1;
+	} else if (!failed && initial != 2) {
+		printf("KSC-019: FAIL initial value=%d expected=2\n", initial);
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC019_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc019_value, &deadline) != 0) {
+			printf("KSC-019: FAIL first sem_timedwait errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-019: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (!failed && sem_getvalue(&g_ksc019_value, &middle) != 0) {
+		printf("KSC-019: FAIL middle sem_getvalue errno=%d\n", errno);
+		failed = 1;
+	} else if (!failed && middle != 1) {
+		printf("KSC-019: FAIL middle value=%d expected=1\n", middle);
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC019_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc019_value, &deadline) != 0) {
+			printf("KSC-019: FAIL second sem_timedwait errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-019: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (sem_getvalue(&g_ksc019_value, &final) != 0) {
+		printf("KSC-019: FAIL final sem_getvalue errno=%d\n", errno);
+		failed = 1;
+	} else if (final != 0) {
+		printf("KSC-019: FAIL final value=%d expected=0\n", final);
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc019_value) != 0) {
+		printf("KSC-019: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-019: %s semaphore values initial=%d middle=%d final=%d\n",
+	       failed ? "FAIL" : "PASS", initial, middle, final);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2164,6 +2237,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc018_semaphore_value() != 0) {
+		failed++;
+	}
+	if (ksc019_semaphore_multiple_tokens() != 0) {
 		failed++;
 	}
 
