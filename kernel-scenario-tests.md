@@ -23,7 +23,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-017 | `hello_main.c`: an all-active-CPU-affined worker waits behind a start gate while its creator requires `pthread_tryjoin_np()` to return `EBUSY`, then releases, deadline-waits, and normally joins it. | `KSC-017: PASS pthread tryjoin busy=16 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-018 | `hello_main.c`: an initially empty semaphore is posted once, its value is read, its token is acquired with a two-second absolute timed wait, and its value is read again before destruction. | `KSC-018: PASS semaphore value before=1 after=0` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-019 | `hello_main.c`: an initially empty semaphore is posted twice, must report values 2, 1, and 0 around two two-second absolute timed waits, and is then destroyed. | `KSC-019: PASS semaphore values initial=2 middle=1 final=0` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
-| KSC-020 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker publishes its blocking acquisition attempt; creator uses two-second deadlines to observe the attempt and post-release completion, then joins it. | `KSC-020: PASS mutex blocking handoff status=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | pending | pending |
+| KSC-020 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker publishes its blocking acquisition attempt; creator uses two-second deadlines to observe the attempt and post-release completion, then joins it. | `KSC-020: PASS mutex blocking handoff status=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1985,3 +1985,24 @@ make: *** [post] Error 1
 ```
 
 `dbuild.sh` returned status 0 despite the packaging failure. Therefore no matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible. This is an explicit KSC-020 `dramboot_elf` blocker inherited from KSC-015, not a PASS; only `dramboot_elf_smp` remains pending and must be attempted before adding another scenario.
+
+## 2026-08-16 KSC-020 `dramboot_elf_smp` post-link blocker
+
+The final pending KSC-020 configuration was attempted with the exact required command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf_smp && ./dbuild.sh
+```
+
+Configuration selected qemu-virt ELF-SMP and compilation completed through `hello_main.c`, including KSC-020. The kernel `tinyara` link and `tinyara.bin` copy completed, but the final application packaging could not produce a matching image because retained KSC-015 still references an unavailable pthread attribute API:
+
+```text
+Preparing final ../build/output/bin/app1 binary
+Verify ../build/output/bin/common
+Undefined Symbols in ../build/output/bin/common
+         U pthread_attr_setdetachstate    /root/tizenrt/apps/examples/hello/hello_main.c:1788
+make: *** [post] Error 1
+Makefile.unix:551: recipe for target 'post' failed
+```
+
+`dbuild.sh` returned status 0 despite the packaging failure. Therefore no matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible. This is an explicit KSC-020 `dramboot_elf_smp` blocker inherited from KSC-015, not a PASS. KSC-020 now has all four required configuration outcomes recorded; no new scenario was added because verification was pending at this cycle's start.
