@@ -11,7 +11,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-005 | `hello_main.c`: two all-active-CPU-affined workers concurrently call `pthread_once`; each completion is semaphore-timed and both are joined, while the single initializer count is checked. | `KSC-005: PASS pthread_once initializer count=1 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-006 | `hello_main.c`: two all-active-CPU-affined workers acquire a shared read lock, publish acquisition, then are released and joined; creator requires both acquisitions before either release. | `KSC-006: PASS rwlock concurrent readers=2 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-007 | `hello_main.c`: two workers with affinity covering all CPUs in `CONFIG_SMP_NCPUS` are released through a start gate into a two-party pthread barrier; each completion is semaphore-timed, both are joined, and exactly one serial-thread return is required. | `KSC-007: PASS barrier serial count=1 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
-| KSC-008 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker calls `pthread_mutex_trylock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-008: PASS mutex trylock status=16 mask=...` and affinity evidence. | PASS | pending | pending | pending | pending |
+| KSC-008 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker calls `pthread_mutex_trylock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-008: PASS mutex trylock status=16 mask=...` and affinity evidence. | PASS | PASS | pending | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -587,3 +587,40 @@ QEMU: Terminated
 ```
 
 QEMU exited 0 after Ctrl-A x. KSC-008 passes `dramboot_flat`; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending, so no new scenario may be added yet.
+
+## 2026-08-16 KSC-008 `dramboot_flat_smp` evidence
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat_smp && ./dbuild.sh
+```
+
+The matching flat-SMP artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-001: PASS task create -> wake -> exit -> join
+KSC-002: PASS mutex handoff counter=64
+KSC-003: PASS condition predicate=1
+KSC-004: worker affinity mask=0xf cpus=4
+KSC-004: PASS thread-specific value=0 mask=0xf
+KSC-005: worker affinity mask=0xf cpus=4
+KSC-005: PASS pthread_once initializer count=1 mask=0xf
+KSC-006: worker affinity mask=0xf cpus=4
+KSC-006: PASS rwlock concurrent readers=2 mask=0xf
+KSC-007: worker affinity mask=0xf cpus=4
+KSC-007: PASS barrier serial count=1 mask=0xf
+KSC-008: START mutex trylock exclusion (timeout=2 s)
+KSC-008: worker affinity mask=0xf cpus=4
+KSC-008: PASS mutex trylock status=16 mask=0xf
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-008 passes `dramboot_flat_smp`; `dramboot_elf` and `dramboot_elf_smp` remain pending, so no new scenario may be added yet.
