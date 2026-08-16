@@ -22,7 +22,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-016 | `hello_main.c`: an all-active-CPU-affined worker verifies an empty semaphore's `sem_trywait()` returns `EAGAIN`; creator uses a two-second completion deadline, joins it, then verifies a posted token is acquired nonblockingly. | `KSC-016: PASS semaphore trywait empty=11 posted=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-017 | `hello_main.c`: an all-active-CPU-affined worker waits behind a start gate while its creator requires `pthread_tryjoin_np()` to return `EBUSY`, then releases, deadline-waits, and normally joins it. | `KSC-017: PASS pthread tryjoin busy=16 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-018 | `hello_main.c`: an initially empty semaphore is posted once, its value is read, its token is acquired with a two-second absolute timed wait, and its value is read again before destruction. | `KSC-018: PASS semaphore value before=1 after=0` | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
-| KSC-019 | `hello_main.c`: an initially empty semaphore is posted twice, must report values 2, 1, and 0 around two two-second absolute timed waits, and is then destroyed. | `KSC-019: PASS semaphore values initial=2 middle=1 final=0` | PENDING | PENDING | PENDING | PENDING | pending |
+| KSC-019 | `hello_main.c`: an initially empty semaphore is posted twice, must report values 2, 1, and 0 around two two-second absolute timed waits, and is then destroyed. | `KSC-019: PASS semaphore values initial=2 middle=1 final=0` | BLOCKED (KSC-015 link) | PENDING | PENDING | PENDING | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1834,3 +1834,23 @@ make: *** [post] Error 1
 ## 2026-08-16 KSC-019 added; verification pending
 
 After every prior TEST-ID had a recorded result or explicit blocker in all four configurations, KSC-019 was added as this cycle's exactly one new isolated scenario. It covers multi-token semaphore accounting, a reachable behavior distinct from KSC-018's one-token post/acquire transition: it posts twice, verifies values 2, 1, and 0 around two finite absolute timed waits, then destroys the semaphore while checking every result. It has no worker and therefore remains compatible with single-core and SMP configurations. All four KSC-019 outcomes are pending; the next cycle must first attempt its pending configurations. The current inherited KSC-015 post-link blocker will prevent a matching image unless that retained scenario is made linkable.
+
+## 2026-08-16 KSC-019 `dramboot_flat` link blocker
+
+The required configuration/build was attempted with the exact command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+Configuration and compilation completed through `hello_main.c`, including KSC-019, but the final kernel link could not produce a matching image because the retained KSC-015 detached-thread scenario references an unavailable pthread attribute API:
+
+```text
+LD: tinyara
+arm-none-eabi-ld: /root/tizenrt/os/../build/output/libraries/libapps.a(hello_main.o): in function `ksc015_detached_thread':
+/root/tizenrt/apps/examples/hello/hello_main.c:1782: undefined reference to `pthread_attr_setdetachstate'
+make[1]: *** [../build/output/bin/tinyara] Error 1
+make: *** [pass2] Error 2
+```
+
+`dbuild.sh` returned status 0 despite this linker failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible. This is an explicit KSC-019 `dramboot_flat` blocker inherited from KSC-015, not a PASS; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending. No new scenario was added because KSC-019's four-configuration gate remains open.
