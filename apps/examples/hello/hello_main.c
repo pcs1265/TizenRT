@@ -96,6 +96,7 @@
 #define KSC022_TIMEOUT_SECONDS 2
 #define KSC023_TIMEOUT_SECONDS 2
 #define KSC024_TIMEOUT_SECONDS 2
+#define KSC025_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -183,6 +184,12 @@ static int g_ksc022_exit_token;
 static pthread_mutex_t g_ksc023_lock;
 static pthread_cond_t g_ksc023_condition;
 static pthread_mutex_t g_ksc024_lock;
+static pthread_rwlock_t g_ksc025_lock;
+static sem_t g_ksc025_ready;
+static sem_t g_ksc025_release;
+static sem_t g_ksc025_done;
+static int g_ksc025_worker_status;
+static int g_ksc025_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -2673,6 +2680,169 @@ static int ksc024_mutex_trylock_available(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-025: a timed read-lock acquisition must expire while another worker
+ * owns the write lock.  This covers the bounded blocking rwlock path rather
+ * than KSC-010/KSC-011's immediate trylock exclusion paths. */
+static pthread_addr_t ksc025_timed_read_worker(pthread_addr_t arg)
+{
+	int locked = 0;
+	int status;
+
+	(void)arg;
+	status = pthread_rwlock_wrlock(&g_ksc025_lock);
+	if (status == 0) {
+		locked = 1;
+	}
+	if (locked && sem_post(&g_ksc025_ready) != 0) {
+		status = -1;
+	}
+	if (locked && sem_wait(&g_ksc025_release) != 0) {
+		status = -1;
+	}
+	if (locked && pthread_rwlock_unlock(&g_ksc025_lock) != 0) {
+		status = -1;
+	}
+	g_ksc025_worker_status = status;
+	if (sem_post(&g_ksc025_done) != 0) {
+		return NULL;
+	}
+	return status == 0 ? &g_ksc025_exit_token : NULL;
+}
+
+static int ksc025_rwlock_timedread_timeout(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int lock_ready = 0;
+	int ready_ready = 0;
+	int release_ready = 0;
+	int done_ready = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int released = 0;
+	int timed_status = -1;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-025: START rwlock timedread timeout (timeout=%d s)\n",
+	       KSC025_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-025: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	g_ksc025_worker_status = -1;
+	if ((status = pthread_rwlock_init(&g_ksc025_lock, NULL)) != 0) {
+		printf("KSC-025: FAIL pthread_rwlock_init status=%d\n", status);
+		return -1;
+	}
+	lock_ready = 1;
+	if (sem_init(&g_ksc025_ready, 0, 0) != 0) {
+		printf("KSC-025: FAIL sem_init errno=%d\n", errno);
+		failed = 1;
+	} else {
+		ready_ready = 1;
+	}
+	if (!failed && sem_init(&g_ksc025_release, 0, 0) != 0) {
+		printf("KSC-025: FAIL release sem_init errno=%d\n", errno);
+		failed = 1;
+	} else if (!failed) {
+		release_ready = 1;
+	}
+	if (!failed && sem_init(&g_ksc025_done, 0, 0) != 0) {
+		printf("KSC-025: FAIL done sem_init errno=%d\n", errno);
+		failed = 1;
+	} else if (!failed) {
+		done_ready = 1;
+	}
+	if (!failed && (status = pthread_attr_init(&attr)) != 0) {
+		printf("KSC-025: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		attr_ready = 1;
+		if ((status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask)) != 0) {
+			printf("KSC-025: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	if (!failed && (status = pthread_create(&worker, &attr,
+							      ksc025_timed_read_worker, NULL)) != 0) {
+		printf("KSC-025: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		created = 1;
+	}
+	if (created && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC025_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc025_ready, &deadline) != 0) {
+			printf("KSC-025: FAIL worker ready errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (created) {
+		printf("KSC-025: FAIL ready clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC025_TIMEOUT_SECONDS;
+		timed_status = pthread_rwlock_timedrdlock(&g_ksc025_lock, &deadline);
+		if (timed_status != ETIMEDOUT) {
+			printf("KSC-025: FAIL pthread_rwlock_timedrdlock status=%d expected=%d\n",
+			       timed_status, ETIMEDOUT);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-025: FAIL timedread clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created && sem_post(&g_ksc025_release) != 0) {
+		printf("KSC-025: FAIL release sem_post errno=%d\n", errno);
+		failed = 1;
+	} else if (created) {
+		released = 1;
+	}
+	if (created && released && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC025_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc025_done, &deadline) != 0) {
+			printf("KSC-025: FAIL worker completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (created && released) {
+		printf("KSC-025: FAIL completion clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0 || (released && result != &g_ksc025_exit_token)) {
+			printf("KSC-025: FAIL pthread_join status=%d result=%p\n", status,
+			       result);
+			failed = 1;
+		}
+	}
+	if (!failed && g_ksc025_worker_status != 0) {
+		printf("KSC-025: FAIL worker status=%d\n", g_ksc025_worker_status);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-025: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if ((done_ready && sem_destroy(&g_ksc025_done) != 0) ||
+	    (release_ready && sem_destroy(&g_ksc025_release) != 0) ||
+	    (ready_ready && sem_destroy(&g_ksc025_ready) != 0) ||
+	    (lock_ready && pthread_rwlock_destroy(&g_ksc025_lock) != 0)) {
+		printf("KSC-025: FAIL cleanup errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-025: %s rwlock timedread status=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", timed_status, (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2759,6 +2929,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc024_mutex_trylock_available() != 0) {
+		failed++;
+	}
+	if (ksc025_rwlock_timedread_timeout() != 0) {
 		failed++;
 	}
 
