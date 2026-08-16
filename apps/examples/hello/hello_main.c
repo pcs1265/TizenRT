@@ -83,6 +83,7 @@
 #define KSC009_WORKER_COUNT 2
 #define KSC010_TIMEOUT_SECONDS 2
 #define KSC011_TIMEOUT_SECONDS 2
+#define KSC012_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -135,6 +136,7 @@ static pthread_rwlock_t g_ksc011_lock;
 static sem_t g_ksc011_done;
 static int g_ksc011_tryread_status;
 static int g_ksc011_exit_token;
+static sem_t g_ksc012_empty;
 
 /****************************************************************************
  * Private Functions
@@ -1465,6 +1467,43 @@ static int ksc011_rwlock_tryread_busy(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-012: an empty semaphore's finite wait must expire with ETIMEDOUT.
+ * This is an isolated kernel timeout path; the semaphore is destroyed after
+ * the result is observed. */
+static int ksc012_semaphore_timeout(void)
+{
+	struct timespec deadline;
+	int failed = 0;
+
+	printf("KSC-012: START semaphore timeout (timeout=%d s)\n",
+	       KSC012_TIMEOUT_SECONDS);
+	if (sem_init(&g_ksc012_empty, 0, 0) != 0) {
+		printf("KSC-012: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+	if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+		printf("KSC-012: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	} else {
+		deadline.tv_sec += KSC012_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc012_empty, &deadline) == 0) {
+			printf("KSC-012: FAIL sem_timedwait unexpectedly acquired\n");
+			failed = 1;
+		} else if (errno != ETIMEDOUT) {
+			printf("KSC-012: FAIL sem_timedwait errno=%d expected=%d\n",
+			       errno, ETIMEDOUT);
+			failed = 1;
+		}
+	}
+	if (sem_destroy(&g_ksc012_empty) != 0) {
+		printf("KSC-012: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-012: %s semaphore timeout errno=%d\n",
+	       failed ? "FAIL" : "PASS", ETIMEDOUT);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -1512,6 +1551,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc011_rwlock_tryread_busy() != 0) {
+		failed++;
+	}
+	if (ksc012_semaphore_timeout() != 0) {
 		failed++;
 	}
 
