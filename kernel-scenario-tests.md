@@ -15,7 +15,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-009 | `hello_main.c`: two all-active-CPU-affined workers publish that they are condition-waiting; creator sets a predicate and broadcasts, then requires both timed completions and joins. | `KSC-009: PASS condition broadcast woken=2 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-010 | `hello_main.c`: creator holds a read lock while one all-active-CPU-affined worker calls `pthread_rwlock_trywrlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-010: PASS rwlock trywrite status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
-| KSC-012 | `hello_main.c`: an initially empty semaphore is waited with an absolute two-second deadline and then destroyed. | `KSC-012: PASS semaphore timeout errno=110` | pending | pending | pending | PASS | pending |
+| KSC-012 | `hello_main.c`: an initially empty semaphore is waited with an absolute two-second deadline and then destroyed. | `KSC-012: PASS semaphore timeout errno=110` | PASS | pending | pending | PASS | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1130,3 +1130,28 @@ QEMU: Terminated
 ```
 
 QEMU exited 0 after Ctrl-A x. KSC-012 passes `dramboot_elf_smp`: build, refresh, literal boot, TEST-ID PASS, and clean termination all completed. The established reachable KSC-007 barrier timeout reproduced, so the aggregate harness remained failed; it is separately recorded as KSC-007's ELF-SMP regression. `dramboot_flat`, `dramboot_flat_smp`, and `dramboot_elf` remain pending, so no new scenario was added.
+
+## 2026-08-16 KSC-012 `dramboot_flat` evidence
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+The matching flat artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-012: START semaphore timeout (timeout=2 s)
+KSC-012: PASS semaphore timeout errno=110
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-012 passes `dramboot_flat`: build, matching image refresh, literal boot, TEST-ID PASS, and clean termination all completed. `dramboot_flat_smp` and `dramboot_elf` remain pending, so no new scenario was added.
