@@ -74,6 +74,8 @@
 #define KSC004_TIMEOUT_SECONDS 2
 #define KSC005_TIMEOUT_SECONDS 2
 #define KSC005_WORKER_COUNT 2
+#define KSC006_TIMEOUT_SECONDS 2
+#define KSC006_WORKER_COUNT 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -98,6 +100,10 @@ static int g_ksc004_value;
 static sem_t g_ksc005_done;
 static pthread_once_t g_ksc005_once = PTHREAD_ONCE_INIT;
 static int g_ksc005_init_count;
+static pthread_rwlock_t g_ksc006_lock;
+static sem_t g_ksc006_ready;
+static sem_t g_ksc006_release;
+static int g_ksc006_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -623,6 +629,138 @@ static int ksc005_once_concurrency(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-006: two readers must both acquire a read lock before either is allowed
+ * to release it. This tests reader sharing with bounded observation and joins. */
+static pthread_addr_t ksc006_reader(pthread_addr_t arg)
+{
+	int status;
+
+	(void)arg;
+	status = pthread_rwlock_rdlock(&g_ksc006_lock);
+	if (status != 0) {
+		return NULL;
+	}
+	if (sem_post(&g_ksc006_ready) != 0) {
+		(void)pthread_rwlock_unlock(&g_ksc006_lock);
+		return NULL;
+	}
+	if (sem_wait(&g_ksc006_release) != 0) {
+		(void)pthread_rwlock_unlock(&g_ksc006_lock);
+		return NULL;
+	}
+	if (pthread_rwlock_unlock(&g_ksc006_lock) != 0) {
+		return NULL;
+	}
+	return &g_ksc006_exit_token;
+}
+
+static int ksc006_rwlock_reader_sharing(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t workers[KSC006_WORKER_COUNT];
+	pthread_addr_t result;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int ready = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-006: START rwlock reader sharing (timeout=%d s)\n",
+	       KSC006_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-006: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	status = pthread_rwlock_init(&g_ksc006_lock, NULL);
+	if (status != 0) {
+		printf("KSC-006: FAIL pthread_rwlock_init status=%d\n", status);
+		return -1;
+	}
+	if (sem_init(&g_ksc006_ready, 0, 0) != 0) {
+		printf("KSC-006: FAIL ready sem_init errno=%d\n", errno);
+		(void)pthread_rwlock_destroy(&g_ksc006_lock);
+		return -1;
+	}
+	if (sem_init(&g_ksc006_release, 0, 0) != 0) {
+		printf("KSC-006: FAIL release sem_init errno=%d\n", errno);
+		(void)sem_destroy(&g_ksc006_ready);
+		(void)pthread_rwlock_destroy(&g_ksc006_lock);
+		return -1;
+	}
+	status = pthread_attr_init(&attr);
+	if (status != 0) {
+		printf("KSC-006: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-006: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	for (i = 0; !failed && i < KSC006_WORKER_COUNT; i++) {
+		status = pthread_create(&workers[i], &attr, ksc006_reader, NULL);
+		if (status != 0) {
+			printf("KSC-006: FAIL pthread_create[%d] status=%d\n", i, status);
+			failed = 1;
+			break;
+		}
+		created++;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC006_TIMEOUT_SECONDS;
+		while (!failed && ready < KSC006_WORKER_COUNT) {
+			if (sem_timedwait(&g_ksc006_ready, &deadline) != 0) {
+				printf("KSC-006: FAIL reader acquisition errno=%d\n", errno);
+				failed = 1;
+			} else {
+				ready++;
+			}
+		}
+	} else if (!failed) {
+		printf("KSC-006: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created != KSC006_WORKER_COUNT) {
+		failed = 1;
+	}
+	/* Every created reader gets a release token even on timeout. */
+	for (i = 0; i < created; i++) {
+		if (sem_post(&g_ksc006_release) != 0) {
+			printf("KSC-006: FAIL release sem_post errno=%d\n", errno);
+			failed = 1;
+		}
+	}
+	for (i = 0; i < created; i++) {
+		result = NULL;
+		status = pthread_join(workers[i], &result);
+		if (status != 0 || (!failed && result != &g_ksc006_exit_token)) {
+			printf("KSC-006: FAIL pthread_join[%d] status=%d result=%p\n",
+			       i, status, result);
+			failed = 1;
+		}
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-006: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc006_release) != 0 ||
+		sem_destroy(&g_ksc006_ready) != 0 ||
+		pthread_rwlock_destroy(&g_ksc006_lock) != 0) {
+		printf("KSC-006: FAIL cleanup\n");
+		failed = 1;
+	}
+	printf("KSC-006: %s rwlock concurrent readers=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", ready, (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -652,6 +790,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc005_once_concurrency() != 0) {
+		failed++;
+	}
+	if (ksc006_rwlock_reader_sharing() != 0) {
 		failed++;
 	}
 
