@@ -89,6 +89,7 @@
 #define KSC015_TIMEOUT_SECONDS 2
 #define KSC016_TIMEOUT_SECONDS 2
 #define KSC017_TIMEOUT_SECONDS 2
+#define KSC018_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -158,6 +159,7 @@ static int g_ksc016_exit_token;
 static sem_t g_ksc017_start;
 static sem_t g_ksc017_done;
 static int g_ksc017_exit_token;
+static sem_t g_ksc018_value;
 
 /****************************************************************************
  * Private Functions
@@ -2040,6 +2042,60 @@ static int ksc017_tryjoin_busy(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-018: semaphore accounting must report the queued token before and
+ * after a bounded timed acquisition.  This isolates sem_getvalue() from the
+ * empty and trywait paths exercised by KSC-012 and KSC-016. */
+static int ksc018_semaphore_value(void)
+{
+	struct timespec deadline;
+	int before = -1;
+	int after = -1;
+	int failed = 0;
+
+	printf("KSC-018: START semaphore value accounting (timeout=%d s)\n",
+	       KSC018_TIMEOUT_SECONDS);
+	if (sem_init(&g_ksc018_value, 0, 0) != 0) {
+		printf("KSC-018: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+	if (sem_post(&g_ksc018_value) != 0) {
+		printf("KSC-018: FAIL sem_post errno=%d\n", errno);
+		failed = 1;
+	}
+	if (!failed && sem_getvalue(&g_ksc018_value, &before) != 0) {
+		printf("KSC-018: FAIL sem_getvalue before errno=%d\n", errno);
+		failed = 1;
+	}
+	if (!failed && before != 1) {
+		printf("KSC-018: FAIL value before=%d expected=1\n", before);
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC018_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc018_value, &deadline) != 0) {
+			printf("KSC-018: FAIL sem_timedwait errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-018: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (sem_getvalue(&g_ksc018_value, &after) != 0) {
+		printf("KSC-018: FAIL sem_getvalue after errno=%d\n", errno);
+		failed = 1;
+	} else if (after != 0) {
+		printf("KSC-018: FAIL value after=%d expected=0\n", after);
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc018_value) != 0) {
+		printf("KSC-018: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-018: %s semaphore value before=%d after=%d\n",
+	       failed ? "FAIL" : "PASS", before, after);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2105,6 +2161,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc017_tryjoin_busy() != 0) {
+		failed++;
+	}
+	if (ksc018_semaphore_value() != 0) {
 		failed++;
 	}
 

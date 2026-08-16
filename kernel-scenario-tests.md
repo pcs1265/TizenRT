@@ -21,6 +21,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-015 | `hello_main.c`: an all-active-CPU-affined worker is created detached, posts completion, and returns; creator uses a two-second semaphore deadline and cleans up the thread attribute and semaphore. | `KSC-015: PASS detached completion mask=...` and affinity evidence. | BLOCKED (link) | BLOCKED (link) | BLOCKED (post-link) | BLOCKED (post-link) | blocked |
 | KSC-016 | `hello_main.c`: an all-active-CPU-affined worker verifies an empty semaphore's `sem_trywait()` returns `EAGAIN`; creator uses a two-second completion deadline, joins it, then verifies a posted token is acquired nonblockingly. | `KSC-016: PASS semaphore trywait empty=11 posted=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
 | KSC-017 | `hello_main.c`: an all-active-CPU-affined worker waits behind a start gate while its creator requires `pthread_tryjoin_np()` to return `EBUSY`, then releases, deadline-waits, and normally joins it. | `KSC-017: PASS pthread tryjoin busy=16 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 link) | BLOCKED (KSC-015 post-link) | BLOCKED (KSC-015 post-link) | blocked |
+| KSC-018 | `hello_main.c`: an initially empty semaphore is posted once, its value is read, its token is acquired with a two-second absolute timed wait, and its value is read again before destruction. | `KSC-018: PASS semaphore value before=1 after=0` | BLOCKED (KSC-015 link) | PENDING | PENDING | PENDING | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1741,3 +1742,28 @@ make: *** [post] Error 1
 ```
 
 The `dbuild.sh` wrapper returned status 0 despite this post-link packaging failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible. This is an explicit `dramboot_elf_smp` blocker inherited from KSC-015, not a KSC-017 PASS. KSC-017 now has all four required configuration outcomes recorded; no scenario was added in this cycle because verification was pending at its start.
+
+## 2026-08-16 KSC-018 added; verification pending
+
+KSC-018 covers semaphore value accounting, an unrepresented reachable behavior distinct from KSC-012's empty-semaphore timed expiry and KSC-016's nonblocking acquisition. `hello` initializes an empty semaphore, posts exactly one token, requires `sem_getvalue()` to report one, consumes that token through a two-second absolute `sem_timedwait()` deadline, then requires `sem_getvalue()` to report zero before destroying the semaphore. Every operation is checked and the scenario has no worker, so it is compatible with single-core and SMP configurations. All prior TEST-IDs have recorded outcomes (including KSC-015 through KSC-017 explicit inherited blockers), and KSC-018 is the exactly one new isolated scenario for this cycle; all four KSC-018 outcomes are pending.
+
+## 2026-08-16 KSC-018 `dramboot_flat` link blocker
+
+The required configuration/build was attempted with the exact command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+`hello_main.c`, including KSC-018, compiled successfully, and the TizenRT libc build included `bin/sem_getvalue.o`. The final kernel link nevertheless could not produce a matching image because the retained KSC-015 scenario references the unavailable detached-thread attribute API:
+
+```text
+LD: tinyara
+arm-none-eabi-ld: /root/tizenrt/os/../build/output/libraries/libapps.a(hello_main.o): in function `ksc015_detached_thread':
+/root/tizenrt/apps/examples/hello/hello_main.c:1780: undefined reference to `pthread_attr_setdetachstate'
+Makefile:207: recipe for target '../build/output/bin/tinyara' failed
+make[1]: *** [../build/output/bin/tinyara] Error 1
+make: *** [pass2] Error 2
+```
+
+The wrapper returned status 0 despite the final link failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible. This is an explicit KSC-018 `dramboot_flat` blocker inherited from KSC-015, not a PASS; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending.
