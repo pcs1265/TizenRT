@@ -71,6 +71,11 @@
 #define KSC002_WORKER_COUNT 2
 #define KSC002_INCREMENTS_PER_WORKER 32
 #define KSC003_TIMEOUT_SECONDS 2
+#define KSC004_TIMEOUT_SECONDS 2
+
+#ifndef CONFIG_SMP_NCPUS
+#define CONFIG_SMP_NCPUS 1
+#endif
 
 /****************************************************************************
  * Private Data
@@ -85,6 +90,9 @@ static int g_ksc002_counter;
 static pthread_mutex_t g_ksc003_lock;
 static pthread_cond_t g_ksc003_ready;
 static int g_ksc003_predicate;
+static sem_t g_ksc004_ready;
+static pthread_key_t g_ksc004_key;
+static int g_ksc004_value;
 
 /****************************************************************************
  * Private Functions
@@ -400,6 +408,99 @@ static int ksc003_condition_wakeup(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-004: thread-specific data is set and read by a worker with an
+ * all-active-CPU affinity.  Completion is bounded and every created object is
+ * joined or destroyed on the failure path. */
+static pthread_addr_t ksc004_worker(pthread_addr_t arg)
+{
+	(void)arg;
+	if (pthread_setspecific(g_ksc004_key, &g_ksc004_value) != 0 ||
+		pthread_getspecific(g_ksc004_key) != &g_ksc004_value ||
+		sem_post(&g_ksc004_ready) != 0) {
+		return NULL;
+	}
+	return &g_ksc004_value;
+}
+
+static int ksc004_thread_specific_data(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int key_ready = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-004: START thread-specific data (timeout=%d s)\n",
+	       KSC004_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-004: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	if (sem_init(&g_ksc004_ready, 0, 0) != 0 ||
+		pthread_key_create(&g_ksc004_key, NULL) != 0) {
+		printf("KSC-004: FAIL setup errno=%d\n", errno);
+		if (sem_destroy(&g_ksc004_ready) != 0) { }
+		return -1;
+	}
+	key_ready = 1;
+	status = pthread_attr_init(&attr);
+	if (status != 0) {
+		printf("KSC-004: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-004: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	if (!failed && (status = pthread_create(&worker, &attr, ksc004_worker, NULL)) == 0) {
+		created = 1;
+	} else if (!failed) {
+		printf("KSC-004: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC004_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc004_ready, &deadline) != 0) {
+			printf("KSC-004: FAIL worker notification errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-004: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (failed && created) {
+		(void)pthread_cancel(worker);
+	}
+	if (created && ((status = pthread_join(worker, &result)) != 0 ||
+		(!failed && result != &g_ksc004_value))) {
+		printf("KSC-004: FAIL pthread_join status=%d result=%p\n", status, result);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		failed = 1;
+	}
+	if (key_ready && pthread_key_delete(g_ksc004_key) != 0) {
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc004_ready) != 0) {
+		failed = 1;
+	}
+	printf("KSC-004: %s thread-specific value=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc004_value, (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -423,6 +524,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc003_condition_wakeup() != 0) {
+		failed++;
+	}
+	if (ksc004_thread_specific_data() != 0) {
 		failed++;
 	}
 

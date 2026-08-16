@@ -1,82 +1,38 @@
 # qemu-virt kernel scenario test index
 
-This index records executable scenarios in `apps/examples/hello/hello_main.c`. A
-scenario is marked **pass** only after its `hello` output has been captured on
-both required qemu-virt configurations.
+Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matching build, image refresh, literal root-level `./run_qemu.sh` boot to `TASH>>`, `hello` output, and clean QEMU termination.
 
-| TEST-ID | Source location | Kernel behavior / trigger | Expected outcome | Single-core (`dramboot_flat`) | SMP (`dramboot_flat_smp`) | State |
-|---|---|---|---|---|---|---|
-| KSC-001 | `apps/examples/hello/hello_main.c:82-162` | Scheduler/task lifecycle: create a pthread worker, have it post a semaphore, return a unique exit token, then `pthread_join()` it. `sem_timedwait()` uses a 2-second deadline; failure cancels and joins the worker before semaphore cleanup. | `KSC-001: PASS task create -> wake -> exit -> join` and harness PASS. | Build completed on 2026-08-16 02:22 UTC, but **not run**: image refresh was blocked before QEMU boot, so no TASH `hello` evidence exists. | Pending; not built or run in this corrective cycle because the required single-core image-refresh/boot step was blocked. | **pending verification** |
+| TEST-ID | Source / trigger | Expected outcome | `dramboot_flat` | `dramboot_flat_smp` | `dramboot_elf` | `dramboot_elf_smp` | State |
+|---|---|---|---|---|---|---|---|
+| KSC-001 | `hello_main.c`: task lifecycle; worker posts a semaphore, returns a token, and creator timed-waits then joins. | `KSC-001: PASS task create -> wake -> exit -> join` | PASS | PASS | PASS | PASS | pass |
+| KSC-002 | `hello_main.c`: two workers make 32 mutex-protected updates after a common semaphore release. | `KSC-002: PASS mutex handoff counter=64` | PASS | PASS | PASS | PASS | pass |
+| KSC-003 | `hello_main.c`: worker changes a condition-variable predicate under its mutex and signals; creator predicate-waits with a two-second deadline. | `KSC-003: PASS condition predicate=1` | PASS | PASS | PASS | PASS | pass |
+| KSC-004 | `hello_main.c`: worker with affinity covering all CPUs in `CONFIG_SMP_NCPUS` sets and reads a pthread TLS key, signals a semaphore, and is joined; all waits have a two-second deadline and cleanup destroys the key, attribute, and semaphore. | `KSC-004: PASS thread-specific value=0 mask=...` and affinity evidence. | Pending | Pending | Pending | Pending | pending verification |
 
-## 2026-08-16 corrective-run note
+## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
-The requested literal `./dbuild.sh distclean configure qemu-virt/dramboot_flat`
-flow is not accepted by this revision of `dbuild.sh`: after `distclean` it
-parses `qemu-virt/dramboot_flat` as a numeric board selection and exits with
-`division by 0`. Its noninteractive equivalent was used to configure and build
-single-core: `./dbuild.sh qemu-virt dramboot_flat && ./dbuild.sh`; the build
-completed successfully. The normal `./dbuild.sh download ...` path allocates a
-TTY, so the required documented non-TTY equivalent was attempted instead:
+The prior flat and flat-SMP boots reached `TASH>>`; `hello` printed PASS for KSC-001, KSC-002, and KSC-003 and `KSC: harness PASS (0 failed)`. The ELF boot had the same captured output and exited with `QEMU: Terminated`.
 
-```
-docker run --rm -i -v /home/pcs1265/TizenRT/.hermes/bughunt-worktree:/root/tizenrt \
-  -w /root/tizenrt/os --privileged tizenrt/tizenrt:2.0.0 make download
-```
-
-The execution environment denied that privileged Docker invocation before it
-ran. Consequently no freshly matched image could be booted, no TASH `hello`
-command was invoked, and neither configuration is recorded as passing. Existing
-root-level `qemu_flash.bin`, `qemu_blk.bin`, and `run_qemu.sh` are untracked and
-were not used as verification artifacts.
-
-## KSC-002 — mutex contention and ownership handoff
-
-| TEST-ID | Source location | Kernel behavior / trigger | Expected outcome | `dramboot_flat` | `dramboot_flat_smp` | `dramboot_elf` | `dramboot_elf_smp` | State |
-|---|---|---|---|---|---|---|---|---|
-| KSC-002 | `apps/examples/hello/hello_main.c:171-283` | Create two pthreads, release both through a start semaphore, then have each make 32 mutex-protected counter updates. Main observes both completions with one 2-second absolute deadline, joins all created workers, and destroys both semaphores. Failure cleanup cancels then joins every created worker. | `KSC-002: PASS mutex handoff counter=64` and harness PASS. | **Build passed** on 2026-08-16. Image was refreshed with `printf '0\n' \| TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all` after `./dbuild.sh download` returned without performing the refresh. Literal `./run_qemu.sh` was started, but QEMU exited before TASH because the pre-existing process PID 2237810 held both image locks: `Failed to get "write" lock ... qemu_blk.bin`. No `hello` output captured. | Not built or booted: image-lock blocker must be cleared first. | Not built or booted: image-lock blocker must be cleared first. | Not built or booted: image-lock blocker must be cleared first. | **pending verification** |
-
-### 2026-08-16 KSC-002 execution blocker
-
-The exact required flat build command completed successfully:
+The final required ELF-SMP execution this cycle used the exact command:
 
 ```sh
-cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf_smp && ./dbuild.sh
 ```
 
-The required root-level invocation `./run_qemu.sh` then failed before boot/TASH:
-
-```text
-qemu-system-arm: -device virtio-blk-device,drive=blk0,bus=virtio-mmio-bus.0: Failed to get "write" lock
-Is another process using the image [qemu_blk.bin]?
-```
-
-`fuser -v qemu_blk.bin qemu_flash.bin` identified a separate pre-existing
-`qemu-system-arm` PID 2237810 as the holder. It was not terminated because this
-job did not create it. The next run must clear or otherwise isolate that lock,
-then build, refresh, invoke `./run_qemu.sh`, send `hello`, capture KSC-001 and
-KSC-002 output, and cleanly terminate this job's QEMU for all four modes.
-
-## KSC-003 — condition-variable predicate wakeup
-
-| TEST-ID | Source location | Kernel behavior / trigger | Expected outcome | `dramboot_flat` | `dramboot_flat_smp` | `dramboot_elf` | `dramboot_elf_smp` | State |
-|---|---|---|---|---|---|---|---|---|
-| KSC-003 | `apps/examples/hello/hello_main.c:292-405` | Create one pthread which locks a mutex, changes a shared predicate, and signals its condition variable. The creator waits in a predicate loop with a 2-second absolute deadline, joins the worker, and destroys the condition variable and mutex. Failures cancel/join the created worker before destruction. | `KSC-003: PASS condition predicate=1` and harness PASS. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | **PASS**: built, refreshed, literal `./run_qemu.sh` reached `TASH>>`, and `hello` printed KSC-001/002/003 PASS plus `KSC: harness PASS (0 failed)` on 2026-08-16. | **PASS**: exact `cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf && ./dbuild.sh` completed; image refresh wrote `s1_boot.bin`, kernel, common, app1, and bootparam; literal `./run_qemu.sh` reached `TASH>>`. `hello` printed KSC-001/002/003 PASS and `KSC: harness PASS (0 failed)` on 2026-08-16 03:04 UTC; this job then sent Ctrl-A x and QEMU returned `QEMU: Terminated` (exit 0). | Pending build/refresh/required `./run_qemu.sh` + `hello` capture. | **pending verification** |
-
-### 2026-08-16 KSC-003 `dramboot_elf` evidence
-
-```text
-TASH>> hello
-KSC-003: START condition predicate wakeup (timeout=2 s)
-KSC-003: PASS condition predicate=1
-KSC: harness PASS (0 failed)
-QEMU: Terminated
-```
-
-The matched image was refreshed with:
+The matched image refresh completed with:
 
 ```sh
 printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
 ```
 
-The remaining KSC-003 configuration is `dramboot_elf_smp`. No new scenario was
-added because this TEST-ID still has pending verification.
+Literal root-level `./run_qemu.sh` reached `TASH>>`; after entering `hello`, it captured:
+
+```text
+KSC-001: PASS task create -> wake -> exit -> join
+KSC-002: PASS mutex handoff counter=64
+KSC-003: PASS condition predicate=1
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after this job sent Ctrl-A x. This closes the four-configuration verification gate for KSC-001 through KSC-003. KSC-004 was added only afterward and has not yet been built or booted; its four configuration results remain pending.
