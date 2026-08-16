@@ -14,7 +14,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-008 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker calls `pthread_mutex_trylock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-008: PASS mutex trylock status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-009 | `hello_main.c`: two all-active-CPU-affined workers publish that they are condition-waiting; creator sets a predicate and broadcasts, then requires both timed completions and joins. | `KSC-009: PASS condition broadcast woken=2 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-010 | `hello_main.c`: creator holds a read lock while one all-active-CPU-affined worker calls `pthread_rwlock_trywrlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-010: PASS rwlock trywrite status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
-| KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | pending | pending | pending | pending | pending |
+| KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | PASS | pending | pending | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -987,3 +987,29 @@ QEMU exited 0 after Ctrl-A x. KSC-010 passes `dramboot_elf_smp` and therefore al
 ## 2026-08-16 KSC-011 added; verification pending
 
 KSC-011 covers the reverse nonblocking reader/writer-lock exclusion from KSC-010: while the creator holds a write lock, one worker with affinity covering every CPU in `CONFIG_SMP_NCPUS` calls `pthread_rwlock_tryrdlock()` and must observe `EBUSY`. The worker posts its result through a two-second `sem_timedwait()` deadline; all setup, affinity, thread, wait, join, unlock, attribute-destroy, semaphore-destroy, and rwlock-destroy results are checked. A failed wait cancels and joins the worker before cleanup. This behavior is reachable through `hello` and is distinct from KSC-006 reader sharing and KSC-010's writer rejection. All four configuration outcomes are pending.
+
+## 2026-08-16 KSC-011 `dramboot_flat` evidence
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+The matching flat artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-011: START rwlock reader exclusion (timeout=2 s)
+KSC-011: worker affinity mask=0x1 cpus=1
+KSC-011: PASS rwlock tryread status=16 mask=0x1
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-011 passes `dramboot_flat`; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending, so no new scenario was added.
