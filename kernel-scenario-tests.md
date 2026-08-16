@@ -14,7 +14,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-008 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker calls `pthread_mutex_trylock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-008: PASS mutex trylock status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-009 | `hello_main.c`: two all-active-CPU-affined workers publish that they are condition-waiting; creator sets a predicate and broadcasts, then requires both timed completions and joins. | `KSC-009: PASS condition broadcast woken=2 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-010 | `hello_main.c`: creator holds a read lock while one all-active-CPU-affined worker calls `pthread_rwlock_trywrlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-010: PASS rwlock trywrite status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
-| KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | PASS | PASS | pending | pending | pending |
+| KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1046,3 +1046,29 @@ QEMU: Terminated
 ```
 
 QEMU exited 0 after Ctrl-A x. KSC-011 passes `dramboot_flat_smp` under its individual four-configuration gate: the selected configuration built and refreshed, the literal run booted to TASH, and KSC-011 printed its PASS and all-active-CPU affinity evidence before clean termination. The existing reachable KSC-007 barrier timeout reproduced; KSC-011 `dramboot_elf` and `dramboot_elf_smp` remain pending, so no scenario was added.
+
+## 2026-08-16 KSC-011 `dramboot_elf` evidence
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf && ./dbuild.sh
+```
+
+The matching ELF artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-011: START rwlock reader exclusion (timeout=2 s)
+KSC-011: worker affinity mask=0x1 cpus=1
+KSC-011: PASS rwlock tryread status=16 mask=0x1
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-011 passes `dramboot_elf`; only `dramboot_elf_smp` remains pending, so no new scenario was added.
