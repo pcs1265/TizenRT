@@ -19,7 +19,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-013 | `hello_main.c`: an all-active-CPU-affined worker recursively locks and unlocks a `PTHREAD_MUTEX_RECURSIVE` mutex twice, reports completion through a two-second timed semaphore wait, and is joined before mutex/attribute cleanup. | `KSC-013: PASS recursive mutex status=0 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-014 | `hello_main.c`: creator locks an unsignaled condition variable's mutex, uses `pthread_cond_timedwait()` with an absolute two-second deadline, and destroys the condition variable and mutex after the expected timeout. | `KSC-014: PASS condition timeout status=110` | PASS | PASS | PASS | PASS | pass |
 | KSC-015 | `hello_main.c`: an all-active-CPU-affined worker is created detached, posts completion, and returns; creator uses a two-second semaphore deadline and cleans up the thread attribute and semaphore. | `KSC-015: PASS detached completion mask=...` and affinity evidence. | BLOCKED (link) | BLOCKED (link) | BLOCKED (post-link) | BLOCKED (post-link) | blocked |
-| KSC-016 | `hello_main.c`: an all-active-CPU-affined worker verifies an empty semaphore's `sem_trywait()` returns `EAGAIN`; creator uses a two-second completion deadline, joins it, then verifies a posted token is acquired nonblockingly. | `KSC-016: PASS semaphore trywait empty=11 posted=0 mask=...` and affinity evidence. | pending | pending | pending | BLOCKED (KSC-015 post-link) | pending |
+| KSC-016 | `hello_main.c`: an all-active-CPU-affined worker verifies an empty semaphore's `sem_trywait()` returns `EAGAIN`; creator uses a two-second completion deadline, joins it, then verifies a posted token is acquired nonblockingly. | `KSC-016: PASS semaphore trywait empty=11 posted=0 mask=...` and affinity evidence. | BLOCKED (KSC-015 link) | pending | pending | BLOCKED (KSC-015 post-link) | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1592,3 +1592,24 @@ make: *** [post] Error 1
 ```
 
 The wrapper returned status 0 despite this packaging failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible; this is a `dramboot_elf_smp` blocker inherited from KSC-015 rather than a KSC-016 PASS. `dramboot_flat`, `dramboot_flat_smp`, and `dramboot_elf` remain pending.
+
+## 2026-08-16 KSC-016 `dramboot_flat` link blocker
+
+The required configuration/build was attempted with the exact command:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+Configuration and compilation completed through `hello_main.c`, but the final kernel link could not produce a matching image because the retained KSC-015 detached-thread scenario references an unavailable pthread attribute API:
+
+```text
+LD: tinyara
+arm-none-eabi-ld: /root/tizenrt/os/../build/output/libraries/libapps.a(hello_main.o): in function `ksc015_detached_thread':
+/root/tizenrt/apps/examples/hello/hello_main.c:1774: undefined reference to `pthread_attr_setdetachstate'
+Makefile:207: recipe for target '../build/output/bin/tinyara' failed
+make[1]: *** [../build/output/bin/tinyara] Error 1
+make: *** [pass2] Error 2
+```
+
+`dbuild.sh` returned status 0 despite this linker failure. No matching image refresh, literal root-level `./run_qemu.sh` boot, `TASH>>`, `hello` invocation, TEST-ID output, or QEMU termination was possible. This is an explicit `dramboot_flat` blocker inherited from KSC-015, not a KSC-016 PASS. `dramboot_flat_smp` and `dramboot_elf` remain pending; no new scenario was added because KSC-016 still lacks complete configuration outcomes.
