@@ -93,6 +93,7 @@
 #define KSC019_TIMEOUT_SECONDS 2
 #define KSC020_TIMEOUT_SECONDS 2
 #define KSC021_TIMEOUT_SECONDS 2
+#define KSC022_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -172,6 +173,11 @@ static int g_ksc020_exit_token;
 static sem_t g_ksc021_done;
 static int g_ksc021_equal_status;
 static int g_ksc021_exit_token;
+static sem_t g_ksc022_waiting;
+static sem_t g_ksc022_release;
+static sem_t g_ksc022_done;
+static int g_ksc022_worker_status;
+static int g_ksc022_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -2421,6 +2427,141 @@ static int ksc021_pthread_self_identity(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-022: a worker publishes its pending semaphore wait, then must be woken
+ * by exactly one creator post. Both creator observations are bounded and a
+ * release token is supplied on every created-worker path before joining. */
+static pthread_addr_t ksc022_semaphore_wake_worker(pthread_addr_t arg)
+{
+	(void)arg;
+	if (sem_post(&g_ksc022_waiting) != 0) {
+		return NULL;
+	}
+	g_ksc022_worker_status = sem_wait(&g_ksc022_release);
+	if (sem_post(&g_ksc022_done) != 0) {
+		return NULL;
+	}
+	return g_ksc022_worker_status == 0 ? &g_ksc022_exit_token : NULL;
+}
+
+static int ksc022_semaphore_wake_handoff(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int waiting_ready = 0;
+	int release_ready = 0;
+	int done_ready = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int released = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-022: START semaphore wake handoff (timeout=%d s)\n",
+	       KSC022_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-022: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	g_ksc022_worker_status = -1;
+	if (sem_init(&g_ksc022_waiting, 0, 0) != 0) {
+		printf("KSC-022: FAIL waiting sem_init errno=%d\n", errno);
+		return -1;
+	}
+	waiting_ready = 1;
+	if (sem_init(&g_ksc022_release, 0, 0) != 0) {
+		printf("KSC-022: FAIL release sem_init errno=%d\n", errno);
+		failed = 1;
+	} else {
+		release_ready = 1;
+	}
+	if (!failed && sem_init(&g_ksc022_done, 0, 0) != 0) {
+		printf("KSC-022: FAIL done sem_init errno=%d\n", errno);
+		failed = 1;
+	} else if (!failed) {
+		done_ready = 1;
+	}
+	if (!failed && (status = pthread_attr_init(&attr)) != 0) {
+		printf("KSC-022: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-022: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	if (!failed && (status = pthread_create(&worker, &attr,
+						      ksc022_semaphore_wake_worker, NULL)) != 0) {
+		printf("KSC-022: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		created = 1;
+	}
+	if (created && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC022_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc022_waiting, &deadline) != 0) {
+			printf("KSC-022: FAIL worker waiting errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (created) {
+		printf("KSC-022: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created && sem_post(&g_ksc022_release) != 0) {
+		printf("KSC-022: FAIL release sem_post errno=%d\n", errno);
+		failed = 1;
+	} else if (created) {
+		released = 1;
+	}
+	if (created && released && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC022_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc022_done, &deadline) != 0) {
+			printf("KSC-022: FAIL worker completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (created && released) {
+		printf("KSC-022: FAIL completion clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created && !released) {
+		(void)pthread_cancel(worker);
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0 || (released && result != &g_ksc022_exit_token)) {
+			printf("KSC-022: FAIL pthread_join status=%d result=%p\n", status,
+		       result);
+			failed = 1;
+		}
+	}
+	if (!failed && g_ksc022_worker_status != 0) {
+		printf("KSC-022: FAIL worker sem_wait status=%d\n",
+		       g_ksc022_worker_status);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-022: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if ((done_ready && sem_destroy(&g_ksc022_done) != 0) ||
+	    (release_ready && sem_destroy(&g_ksc022_release) != 0) ||
+	    (waiting_ready && sem_destroy(&g_ksc022_waiting) != 0)) {
+		printf("KSC-022: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-022: %s semaphore wake status=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc022_worker_status,
+	       (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2498,6 +2639,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc021_pthread_self_identity() != 0) {
+		failed++;
+	}
+	if (ksc022_semaphore_wake_handoff() != 0) {
 		failed++;
 	}
 
