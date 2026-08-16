@@ -76,6 +76,8 @@
 #define KSC005_WORKER_COUNT 2
 #define KSC006_TIMEOUT_SECONDS 2
 #define KSC006_WORKER_COUNT 2
+#define KSC007_TIMEOUT_SECONDS 2
+#define KSC007_WORKER_COUNT 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -104,6 +106,11 @@ static pthread_rwlock_t g_ksc006_lock;
 static sem_t g_ksc006_ready;
 static sem_t g_ksc006_release;
 static int g_ksc006_exit_token;
+static pthread_barrier_t g_ksc007_barrier;
+static sem_t g_ksc007_start;
+static sem_t g_ksc007_done;
+static int g_ksc007_barrier_result[KSC007_WORKER_COUNT];
+static int g_ksc007_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -761,6 +768,152 @@ static int ksc006_rwlock_reader_sharing(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-007: two all-active-CPU-affined workers meet at a barrier. Exactly one
+ * returns PTHREAD_BARRIER_SERIAL_THREAD. A start gate prevents a partial
+ * group entering the barrier; all observed completion waits are time bounded. */
+static pthread_addr_t ksc007_barrier_worker(pthread_addr_t arg)
+{
+	int index = (int)(long)arg;
+	int status;
+
+	if (sem_wait(&g_ksc007_start) != 0) {
+		return NULL;
+	}
+	status = pthread_barrier_wait(&g_ksc007_barrier);
+	g_ksc007_barrier_result[index] = status;
+	if ((status != 0 && status != PTHREAD_BARRIER_SERIAL_THREAD) ||
+		sem_post(&g_ksc007_done) != 0) {
+		return NULL;
+	}
+	return &g_ksc007_exit_token;
+}
+
+static int ksc007_barrier_serial_thread(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t workers[KSC007_WORKER_COUNT];
+	pthread_addr_t result;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int completed = 0;
+	int serial = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-007: START barrier serial election (timeout=%d s)\n",
+	       KSC007_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-007: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	if (sem_init(&g_ksc007_start, 0, 0) != 0 ||
+		sem_init(&g_ksc007_done, 0, 0) != 0) {
+		printf("KSC-007: FAIL sem_init errno=%d\n", errno);
+		(void)sem_destroy(&g_ksc007_start);
+		return -1;
+	}
+	status = pthread_barrier_init(&g_ksc007_barrier, NULL,
+				      KSC007_WORKER_COUNT);
+	if (status != 0) {
+		printf("KSC-007: FAIL pthread_barrier_init status=%d\n", status);
+		(void)sem_destroy(&g_ksc007_done);
+		(void)sem_destroy(&g_ksc007_start);
+		return -1;
+	}
+	status = pthread_attr_init(&attr);
+	if (status != 0) {
+		printf("KSC-007: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-007: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	for (i = 0; !failed && i < KSC007_WORKER_COUNT; i++) {
+		g_ksc007_barrier_result[i] = -1;
+		status = pthread_create(&workers[i], &attr, ksc007_barrier_worker,
+					(FAR void *)(long)i);
+		if (status != 0) {
+			printf("KSC-007: FAIL pthread_create[%d] status=%d\n", i, status);
+			failed = 1;
+			break;
+		}
+		created++;
+	}
+	if (!failed) {
+		for (i = 0; i < created; i++) {
+			if (sem_post(&g_ksc007_start) != 0) {
+				printf("KSC-007: FAIL start sem_post errno=%d\n", errno);
+				failed = 1;
+			}
+		}
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC007_TIMEOUT_SECONDS;
+		while (!failed && completed < KSC007_WORKER_COUNT) {
+			if (sem_timedwait(&g_ksc007_done, &deadline) != 0) {
+				printf("KSC-007: FAIL barrier completion errno=%d\n", errno);
+				failed = 1;
+			} else {
+				completed++;
+			}
+		}
+	} else if (!failed) {
+		printf("KSC-007: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created != KSC007_WORKER_COUNT) {
+		failed = 1;
+	}
+	if (failed) {
+		for (i = 0; i < created; i++) {
+			(void)pthread_cancel(workers[i]);
+		}
+	}
+	for (i = 0; i < created; i++) {
+		result = NULL;
+		status = pthread_join(workers[i], &result);
+		if (status != 0 || (!failed && result != &g_ksc007_exit_token)) {
+			printf("KSC-007: FAIL pthread_join[%d] status=%d result=%p\n",
+			       i, status, result);
+			failed = 1;
+		}
+	}
+	for (i = 0; i < KSC007_WORKER_COUNT; i++) {
+		if (g_ksc007_barrier_result[i] == PTHREAD_BARRIER_SERIAL_THREAD) {
+			serial++;
+		} else if (g_ksc007_barrier_result[i] != 0) {
+			printf("KSC-007: FAIL barrier result[%d]=%d\n", i,
+			       g_ksc007_barrier_result[i]);
+			failed = 1;
+		}
+	}
+	if (serial != 1) {
+		printf("KSC-007: FAIL serial count=%d\n", serial);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-007: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (pthread_barrier_destroy(&g_ksc007_barrier) != 0 ||
+		sem_destroy(&g_ksc007_done) != 0 || sem_destroy(&g_ksc007_start) != 0) {
+		printf("KSC-007: FAIL cleanup\n");
+		failed = 1;
+	}
+	printf("KSC-007: %s barrier serial count=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", serial, (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -793,6 +946,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc006_rwlock_reader_sharing() != 0) {
+		failed++;
+	}
+	if (ksc007_barrier_serial_thread() != 0) {
 		failed++;
 	}
 

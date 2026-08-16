@@ -10,6 +10,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-004 | `hello_main.c`: worker with affinity covering all CPUs in `CONFIG_SMP_NCPUS` sets and reads a pthread TLS key, signals a semaphore, and is joined; all waits have a two-second deadline and cleanup destroys the key, attribute, and semaphore. | `KSC-004: PASS thread-specific value=0 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-005 | `hello_main.c`: two all-active-CPU-affined workers concurrently call `pthread_once`; each completion is semaphore-timed and both are joined, while the single initializer count is checked. | `KSC-005: PASS pthread_once initializer count=1 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-006 | `hello_main.c`: two all-active-CPU-affined workers acquire a shared read lock, publish acquisition, then are released and joined; creator requires both acquisitions before either release. | `KSC-006: PASS rwlock concurrent readers=2 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
+| KSC-007 | `hello_main.c`: two workers with affinity covering all CPUs in `CONFIG_SMP_NCPUS` are released through a start gate into a two-party pthread barrier; each completion is semaphore-timed, both are joined, and exactly one serial-thread return is required. | `KSC-007: PASS barrier serial count=1 mask=...` and affinity evidence. | PASS | pending | pending | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -407,3 +408,39 @@ QEMU: Terminated
 ```
 
 QEMU exited 0 after Ctrl-A x. KSC-006 now passes all four required configurations. A later cycle may inspect the harness and add exactly one new isolated scenario.
+
+## 2026-08-16 KSC-007 added; verification pending
+
+KSC-007 covers POSIX pthread barrier generation and serial-thread election, which was not represented by the preceding lifecycle, mutex, condition, TLS, once, or reader-sharing scenarios. Two workers use an affinity mask constructed from every CPU in `CONFIG_SMP_NCPUS`. A start semaphore holds both workers until creation succeeds, then each enters a two-party `pthread_barrier_wait()`; the creator requires two semaphore-timed completions, joins both workers, and validates exactly one `PTHREAD_BARRIER_SERIAL_THREAD` result and one normal zero result. Setup failures cancel and join workers before destroying the barrier, attributes, and semaphores. `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending.
+
+## 2026-08-16 KSC-007 `dramboot_flat` evidence
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+The matching flat artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-001: PASS task create -> wake -> exit -> join
+KSC-002: PASS mutex handoff counter=64
+KSC-003: PASS condition predicate=1
+KSC-004: PASS thread-specific value=0 mask=0x1
+KSC-005: PASS pthread_once initializer count=1 mask=0x1
+KSC-006: PASS rwlock concurrent readers=2 mask=0x1
+KSC-007: START barrier serial election (timeout=2 s)
+KSC-007: worker affinity mask=0x1 cpus=1
+KSC-007: PASS barrier serial count=1 mask=0x1
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-007 passes `dramboot_flat`; `dramboot_flat_smp`, `dramboot_elf`, and `dramboot_elf_smp` remain pending, so no new scenario may be added yet.
