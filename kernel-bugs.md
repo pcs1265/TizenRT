@@ -849,3 +849,34 @@ QEMU output showed SMP disabled, S1 boot, kernel CRC success, virtio-blk initial
 Apache NuttX official master raw sources were fetched and inspected. Its current `pthread_cond_wait()` atomically increments the waiter count, breaks/restores the mutex, and calls `nxsem_wait_uninterruptible()`; `pthread_cond_signal()` atomically decrements the count with compare/exchange before `nxsem_post()`. This materially differs from TizenRT's interruptible ordinary wait and corroborates BUG-20260814-002, but is not a TizenRT fix. No TizenRT ID was marked fixed from the comparison.
 
 **Cycle judgment: 새 버그 없음.** No new upstream scheduler-family change, independently actionable root cause, or non-duplicate BUG-ID was found. Existing BUG-20260814-001 and BUG-20260814-002 remain deduplicated **unreproduced candidate** records. No new per-BUG reproduction artifacts were justified. No push or PR was performed; only this isolated ledger update is local.
+
+## Run: 2026-08-16 00:00 UTC monitor cycle
+
+### Change review, source audit, and deduplication
+
+- `git fetch --prune upstream origin`: exit 0. `upstream/master` is `93cde68110a26df205ac4f0f536cff70699f1bc6`; `feat/qemu-virt-gdb-awareness` is `bd5069ad3650600fb5b0aab07ca66106362817b2`; isolated `qemu-virt_bughunt` was `d17967693bd32b02d71961996af9b6cee9e013ed` before this entry. The user's worktree and feature branch were not modified.
+- `git log qemu-virt_bughunt..upstream/master -- os/kernel sched lib/libc/pthread lib/libc/semaphore` returned no commits. The retained scheduler-family fixes (`813daa2fe`, `47b50100f`, `5cf352dd5`, `c93078ab0`, `e3143e612`, `ed41deb4e`, `542d47be3`, `e705013c1`) are already ancestors of both `upstream/master` and the isolated branch. The upstream tip's actual change is unrelated LittleFS validation.
+- Existing IDs remain deduplicated: BUG-20260814-001 is the qemu-virt timer return-value candidate; BUG-20260814-002 is ordinary `pthread_cond_wait()` EINTR waiter accounting. Current source still increments `cond->waiters` before interruptible `pthread_sem_take()` without a failure decrement, while timed wait decrements on failure. This is the same BUG-002 root cause; no new ID was opened. No TizenRT fix for either candidate is merged into `upstream/master`, so both remain **unreproduced candidate**.
+
+### Runtime and GDB evidence
+
+Commands executed only in the isolated bughunt worktree:
+
+```text
+python3 -m py_compile build/configs/qemu-virt/tools/tizenrt_gdb.py build/configs/qemu-virt/tools/auto_symbol_loader.py
+# exit 0
+
+./run_qemu.sh > /tmp/bughunt-20260816-qemu.log 2>&1
+# qemu-system-arm booted; S1 boot, kernel CRC, virtio-blk, SMARTFS mount, and TASH>> observed
+
+gdb-multiarch -q -batch -ex 'set architecture arm' -ex 'target remote :1234' -ex 'source build/configs/qemu-virt/tools/auto_symbol_loader.py' -ex 'source build/configs/qemu-virt/tools/tizenrt_gdb.py' -ex 'interrupt' -ex 'tizenrt current' -ex 'tizenrt tasks' -ex 'tizenrt stack' -ex 'tizenrt waiters' -ex 'tizenrt held' -ex 'info registers pc sp lr' -ex 'detach' -ex 'quit'
+# exit 0; tools and all requested OS-awareness commands executed
+```
+
+The flashed image is an existing build and no matching `build/output/bin/tinyara` ELF is present; `auto_symbol_loader.py` therefore had no symbols and `tizenrt_gdb.py` reported 0 tasks, 0 waiters, and 0 held semaphores, with `pc=0x40114c00`, `sp=0x4015122c`, `lr=0x40104a31`. `arm-none-eabi-gcc` is absent, so independent hello_main/helloxx_main reproductions remain blocked. This is boot/tool evidence only, not reproduction evidence.
+
+### Apache NuttX official-master comparison
+
+Official Apache NuttX master was checked at `2b5509e48ae6264a458269813a21b7dfb6130d16`. Its actual condition wait uses an atomic waiter count and `nxsem_wait_uninterruptible()`, while signal atomically decrements before `nxsem_post()`. That materially differs from TizenRT's interruptible ordinary wait and corroborates BUG-20260814-002, but is not a TizenRT fix.
+
+**Cycle judgment: 새 버그 없음.** No new upstream scheduler/pthread/semaphore/mutex/condition/cancellation/SMP/task change, independently actionable root cause, or non-duplicate BUG-ID was found. Existing candidates remain deduplicated and unreproduced. No new reproduction artifacts were justified; no push or PR was performed.
