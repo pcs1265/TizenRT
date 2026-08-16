@@ -88,6 +88,7 @@
 #define KSC014_TIMEOUT_SECONDS 2
 #define KSC015_TIMEOUT_SECONDS 2
 #define KSC016_TIMEOUT_SECONDS 2
+#define KSC017_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -154,6 +155,9 @@ static sem_t g_ksc016_done;
 static int g_ksc016_trywait_status;
 static int g_ksc016_trywait_errno;
 static int g_ksc016_exit_token;
+static sem_t g_ksc017_start;
+static sem_t g_ksc017_done;
+static int g_ksc017_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -1917,6 +1921,125 @@ static int ksc016_semaphore_trywait(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-017: tryjoin must report EBUSY while an affinity-configured worker is
+ * deliberately held at a start gate, then ordinary join retrieves its token
+ * after the bounded completion path releases it. */
+static pthread_addr_t ksc017_tryjoin_worker(pthread_addr_t arg)
+{
+	(void)arg;
+	if (sem_wait(&g_ksc017_start) != 0 || sem_post(&g_ksc017_done) != 0) {
+		return NULL;
+	}
+
+	return &g_ksc017_exit_token;
+}
+
+static int ksc017_tryjoin_busy(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int start_ready = 0;
+	int done_ready = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int released = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-017: START pthread tryjoin busy (timeout=%d s)\n",
+	       KSC017_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-017: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	if (sem_init(&g_ksc017_start, 0, 0) != 0) {
+		printf("KSC-017: FAIL start sem_init errno=%d\n", errno);
+		return -1;
+	}
+	start_ready = 1;
+	if (sem_init(&g_ksc017_done, 0, 0) != 0) {
+		printf("KSC-017: FAIL done sem_init errno=%d\n", errno);
+		(void)sem_destroy(&g_ksc017_start);
+		return -1;
+	}
+	done_ready = 1;
+	if ((status = pthread_attr_init(&attr)) != 0) {
+		printf("KSC-017: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+	}
+	if (!failed && (status = pthread_attr_setaffinity_np(&attr, sizeof(mask),
+										 &mask)) != 0) {
+		printf("KSC-017: FAIL affinity status=%d mask=0x%lx\n", status,
+		       (unsigned long)mask);
+		failed = 1;
+	}
+	if (!failed && (status = pthread_create(&worker, &attr,
+							      ksc017_tryjoin_worker, NULL)) != 0) {
+		printf("KSC-017: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		created = 1;
+		status = pthread_tryjoin_np(worker, &result);
+		if (status != EBUSY) {
+			printf("KSC-017: FAIL pthread_tryjoin_np status=%d expected=%d\n",
+			       status, EBUSY);
+			failed = 1;
+		}
+	}
+	if (created) {
+		if (sem_post(&g_ksc017_start) != 0) {
+			printf("KSC-017: FAIL start sem_post errno=%d\n", errno);
+			failed = 1;
+		} else {
+			released = 1;
+		}
+	}
+	if (created && released && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC017_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc017_done, &deadline) != 0) {
+			printf("KSC-017: FAIL worker completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (created && released) {
+		printf("KSC-017: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (created && !released) {
+		status = pthread_cancel(worker);
+		if (status != 0) {
+			printf("KSC-017: cleanup pthread_cancel status=%d\n", status);
+			failed = 1;
+		}
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0 || (released && result != &g_ksc017_exit_token)) {
+			printf("KSC-017: FAIL pthread_join status=%d result=%p\n", status,
+			       result);
+			failed = 1;
+		}
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-017: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if ((done_ready && sem_destroy(&g_ksc017_done) != 0) ||
+		(start_ready && sem_destroy(&g_ksc017_start) != 0)) {
+		printf("KSC-017: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-017: %s pthread tryjoin busy=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", EBUSY, (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -1979,6 +2102,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc016_semaphore_trywait() != 0) {
+		failed++;
+	}
+	if (ksc017_tryjoin_busy() != 0) {
 		failed++;
 	}
 
