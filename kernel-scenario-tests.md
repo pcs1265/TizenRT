@@ -28,3 +28,30 @@ ran. Consequently no freshly matched image could be booted, no TASH `hello`
 command was invoked, and neither configuration is recorded as passing. Existing
 root-level `qemu_flash.bin`, `qemu_blk.bin`, and `run_qemu.sh` are untracked and
 were not used as verification artifacts.
+
+## KSC-002 — mutex contention and ownership handoff
+
+| TEST-ID | Source location | Kernel behavior / trigger | Expected outcome | `dramboot_flat` | `dramboot_flat_smp` | `dramboot_elf` | `dramboot_elf_smp` | State |
+|---|---|---|---|---|---|---|---|---|
+| KSC-002 | `apps/examples/hello/hello_main.c:171-283` | Create two pthreads, release both through a start semaphore, then have each make 32 mutex-protected counter updates. Main observes both completions with one 2-second absolute deadline, joins all created workers, and destroys both semaphores. Failure cleanup cancels then joins every created worker. | `KSC-002: PASS mutex handoff counter=64` and harness PASS. | **Build passed** on 2026-08-16. Image was refreshed with `printf '0\n' \| TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all` after `./dbuild.sh download` returned without performing the refresh. Literal `./run_qemu.sh` was started, but QEMU exited before TASH because the pre-existing process PID 2237810 held both image locks: `Failed to get "write" lock ... qemu_blk.bin`. No `hello` output captured. | Not built or booted: image-lock blocker must be cleared first. | Not built or booted: image-lock blocker must be cleared first. | Not built or booted: image-lock blocker must be cleared first. | **pending verification** |
+
+### 2026-08-16 KSC-002 execution blocker
+
+The exact required flat build command completed successfully:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_flat && ./dbuild.sh
+```
+
+The required root-level invocation `./run_qemu.sh` then failed before boot/TASH:
+
+```text
+qemu-system-arm: -device virtio-blk-device,drive=blk0,bus=virtio-mmio-bus.0: Failed to get "write" lock
+Is another process using the image [qemu_blk.bin]?
+```
+
+`fuser -v qemu_blk.bin qemu_flash.bin` identified a separate pre-existing
+`qemu-system-arm` PID 2237810 as the holder. It was not terminated because this
+job did not create it. The next run must clear or otherwise isolate that lock,
+then build, refresh, invoke `./run_qemu.sh`, send `hello`, capture KSC-001 and
+KSC-002 output, and cleanly terminate this job's QEMU for all four modes.

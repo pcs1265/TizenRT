@@ -67,6 +67,9 @@
  ****************************************************************************/
 
 #define KSC001_TIMEOUT_SECONDS 2
+#define KSC002_TIMEOUT_SECONDS 2
+#define KSC002_WORKER_COUNT 2
+#define KSC002_INCREMENTS_PER_WORKER 32
 
 /****************************************************************************
  * Private Data
@@ -74,6 +77,10 @@
 
 static sem_t g_ksc001_ready;
 static char g_ksc001_exit_token;
+static sem_t g_ksc002_start;
+static sem_t g_ksc002_done;
+static pthread_mutex_t g_ksc002_lock = PTHREAD_MUTEX_INITIALIZER;
+static int g_ksc002_counter;
 
 /****************************************************************************
  * Private Functions
@@ -161,6 +168,123 @@ static int ksc001_task_lifecycle(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-002 worker: wait for a common start, then contend on the mutex. */
+
+static pthread_addr_t ksc002_worker(pthread_addr_t arg)
+{
+	int i;
+
+	(void)arg;
+	if (sem_wait(&g_ksc002_start) != 0) {
+		return NULL;
+	}
+
+	for (i = 0; i < KSC002_INCREMENTS_PER_WORKER; i++) {
+		if (pthread_mutex_lock(&g_ksc002_lock) != 0) {
+			return NULL;
+		}
+		g_ksc002_counter++;
+		if (pthread_mutex_unlock(&g_ksc002_lock) != 0) {
+			return NULL;
+		}
+	}
+
+	(void)sem_post(&g_ksc002_done);
+	return NULL;
+}
+
+/* KSC-002: mutex contention and ownership handoff.
+ *
+ * Two workers are released together and repeatedly update one protected
+ * counter. Every completion observation is time bounded; the failure path
+ * cancels and joins both workers before destroying synchronization state.
+ */
+
+static int ksc002_mutex_contention(void)
+{
+	struct timespec deadline;
+	pthread_t workers[KSC002_WORKER_COUNT];
+	int created = 0;
+	int completed = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-002: START mutex contention (timeout=%d s)\n",
+	       KSC002_TIMEOUT_SECONDS);
+	g_ksc002_counter = 0;
+	if (sem_init(&g_ksc002_start, 0, 0) != 0) {
+		printf("KSC-002: FAIL start sem_init errno=%d\n", errno);
+		return -1;
+	}
+	if (sem_init(&g_ksc002_done, 0, 0) != 0) {
+		printf("KSC-002: FAIL done sem_init errno=%d\n", errno);
+		(void)sem_destroy(&g_ksc002_start);
+		return -1;
+	}
+
+	for (i = 0; i < KSC002_WORKER_COUNT; i++) {
+		status = pthread_create(&workers[i], NULL, ksc002_worker, NULL);
+		if (status != 0) {
+			printf("KSC-002: FAIL pthread_create[%d] status=%d\n", i, status);
+			failed = 1;
+			break;
+		}
+		created++;
+	}
+	for (i = 0; i < created; i++) {
+		if (sem_post(&g_ksc002_start) != 0) {
+			printf("KSC-002: FAIL sem_post errno=%d\n", errno);
+			failed = 1;
+		}
+	}
+
+	if (!failed) {
+		if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+			printf("KSC-002: FAIL clock_gettime errno=%d\n", errno);
+			failed = 1;
+		} else {
+			deadline.tv_sec += KSC002_TIMEOUT_SECONDS;
+			while (!failed && completed < created) {
+				if (sem_timedwait(&g_ksc002_done, &deadline) != 0) {
+					printf("KSC-002: FAIL worker completion errno=%d\n", errno);
+					failed = 1;
+				} else {
+					completed++;
+				}
+			}
+		}
+	}
+	if (created != KSC002_WORKER_COUNT) {
+		failed = 1;
+	}
+	if (failed) {
+		for (i = 0; i < created; i++) {
+			(void)pthread_cancel(workers[i]);
+		}
+	}
+	for (i = 0; i < created; i++) {
+		status = pthread_join(workers[i], NULL);
+		if (status != 0) {
+			printf("KSC-002: FAIL pthread_join[%d] status=%d\n", i, status);
+			failed = 1;
+		}
+	}
+	if (!failed && g_ksc002_counter !=
+	    KSC002_WORKER_COUNT * KSC002_INCREMENTS_PER_WORKER) {
+		printf("KSC-002: FAIL counter=%d expected=%d\n", g_ksc002_counter,
+		       KSC002_WORKER_COUNT * KSC002_INCREMENTS_PER_WORKER);
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc002_done) != 0 || sem_destroy(&g_ksc002_start) != 0) {
+		printf("KSC-002: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-002: %s mutex handoff counter=%d\n",
+	       failed ? "FAIL" : "PASS", g_ksc002_counter);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -178,6 +302,9 @@ int hello_main(int argc, char *argv[])
 	printf("KSC: qemu-virt kernel scenario harness start\n");
 
 	if (ksc001_task_lifecycle() != 0) {
+		failed++;
+	}
+	if (ksc002_mutex_contention() != 0) {
 		failed++;
 	}
 
