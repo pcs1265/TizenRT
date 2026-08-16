@@ -79,6 +79,8 @@
 #define KSC007_TIMEOUT_SECONDS 2
 #define KSC007_WORKER_COUNT 2
 #define KSC008_TIMEOUT_SECONDS 2
+#define KSC009_TIMEOUT_SECONDS 2
+#define KSC009_WORKER_COUNT 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -116,6 +118,13 @@ static pthread_mutex_t g_ksc008_lock;
 static sem_t g_ksc008_done;
 static int g_ksc008_trylock_status;
 static int g_ksc008_exit_token;
+static pthread_mutex_t g_ksc009_lock;
+static pthread_cond_t g_ksc009_condition;
+static sem_t g_ksc009_waiting;
+static sem_t g_ksc009_done;
+static int g_ksc009_predicate;
+static int g_ksc009_woken;
+static int g_ksc009_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -1038,6 +1047,176 @@ static int ksc008_mutex_trylock_busy(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-009: a condition broadcast must wake every worker that has published
+ * itself as waiting. Workers receive all-active-CPU affinity; creator waits
+ * are bounded and failure cleanup broadcasts before joining every worker. */
+static pthread_addr_t ksc009_broadcast_worker(pthread_addr_t arg)
+{
+	struct timespec deadline;
+	int status;
+
+	(void)arg;
+	if (pthread_mutex_lock(&g_ksc009_lock) != 0) {
+		return NULL;
+	}
+	if (sem_post(&g_ksc009_waiting) != 0 ||
+	    clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+		(void)pthread_mutex_unlock(&g_ksc009_lock);
+		return NULL;
+	}
+	deadline.tv_sec += KSC009_TIMEOUT_SECONDS;
+	while (!g_ksc009_predicate) {
+		status = pthread_cond_timedwait(&g_ksc009_condition, &g_ksc009_lock,
+						       &deadline);
+		if (status != 0) {
+			(void)pthread_mutex_unlock(&g_ksc009_lock);
+			return NULL;
+		}
+	}
+	g_ksc009_woken++;
+	if (pthread_mutex_unlock(&g_ksc009_lock) != 0 ||
+	    sem_post(&g_ksc009_done) != 0) {
+		return NULL;
+	}
+	return &g_ksc009_exit_token;
+}
+
+static int ksc009_condition_broadcast(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t workers[KSC009_WORKER_COUNT];
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-009: START condition broadcast (timeout=%d s)\n",
+	       KSC009_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-009: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	g_ksc009_predicate = 0;
+	g_ksc009_woken = 0;
+	status = pthread_mutex_init(&g_ksc009_lock, NULL);
+	if (status != 0) {
+		printf("KSC-009: FAIL pthread_mutex_init status=%d\n", status);
+		return -1;
+	}
+	status = pthread_cond_init(&g_ksc009_condition, NULL);
+	if (status != 0) {
+		printf("KSC-009: FAIL pthread_cond_init status=%d\n", status);
+		(void)pthread_mutex_destroy(&g_ksc009_lock);
+		return -1;
+	}
+	if (sem_init(&g_ksc009_waiting, 0, 0) != 0) {
+		printf("KSC-009: FAIL waiting sem_init errno=%d\n", errno);
+		(void)pthread_cond_destroy(&g_ksc009_condition);
+		(void)pthread_mutex_destroy(&g_ksc009_lock);
+		return -1;
+	}
+	if (sem_init(&g_ksc009_done, 0, 0) != 0) {
+		printf("KSC-009: FAIL done sem_init errno=%d\n", errno);
+		(void)sem_destroy(&g_ksc009_waiting);
+		(void)pthread_cond_destroy(&g_ksc009_condition);
+		(void)pthread_mutex_destroy(&g_ksc009_lock);
+		return -1;
+	}
+	status = pthread_attr_init(&attr);
+	if (status != 0) {
+		printf("KSC-009: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-009: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	}
+	for (i = 0; !failed && i < KSC009_WORKER_COUNT; i++) {
+		status = pthread_create(&workers[i], &attr, ksc009_broadcast_worker, NULL);
+		if (status != 0) {
+			printf("KSC-009: FAIL pthread_create[%d] status=%d\n", i, status);
+			failed = 1;
+		} else {
+			created++;
+		}
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC009_TIMEOUT_SECONDS;
+		for (i = 0; i < KSC009_WORKER_COUNT; i++) {
+			if (sem_timedwait(&g_ksc009_waiting, &deadline) != 0) {
+				printf("KSC-009: FAIL worker waiting errno=%d\n", errno);
+				failed = 1;
+				break;
+			}
+		}
+	} else if (!failed) {
+		printf("KSC-009: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (pthread_mutex_lock(&g_ksc009_lock) == 0) {
+		g_ksc009_predicate = 1;
+		if (pthread_cond_broadcast(&g_ksc009_condition) != 0) {
+			printf("KSC-009: FAIL pthread_cond_broadcast\n");
+			failed = 1;
+		}
+		if (pthread_mutex_unlock(&g_ksc009_lock) != 0) {
+			printf("KSC-009: FAIL pthread_mutex_unlock\n");
+			failed = 1;
+		}
+	} else {
+		printf("KSC-009: FAIL pthread_mutex_lock\n");
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC009_TIMEOUT_SECONDS;
+		for (i = 0; i < created; i++) {
+			if (sem_timedwait(&g_ksc009_done, &deadline) != 0) {
+				printf("KSC-009: FAIL worker completion errno=%d\n", errno);
+				failed = 1;
+				break;
+			}
+		}
+	} else if (!failed) {
+		printf("KSC-009: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	for (i = 0; i < created; i++) {
+		status = pthread_join(workers[i], &result);
+		if (status != 0 || result != &g_ksc009_exit_token) {
+			printf("KSC-009: FAIL pthread_join[%d] status=%d result=%p\n", i,
+			       status, result);
+			failed = 1;
+		}
+	}
+	if (created != KSC009_WORKER_COUNT || g_ksc009_woken != KSC009_WORKER_COUNT) {
+		printf("KSC-009: FAIL woken=%d expected=%d\n", g_ksc009_woken,
+		       KSC009_WORKER_COUNT);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-009: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc009_done) != 0 || sem_destroy(&g_ksc009_waiting) != 0 ||
+	    pthread_cond_destroy(&g_ksc009_condition) != 0 ||
+	    pthread_mutex_destroy(&g_ksc009_lock) != 0) {
+		printf("KSC-009: FAIL cleanup\n");
+		failed = 1;
+	}
+	printf("KSC-009: %s condition broadcast woken=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc009_woken, (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -1076,6 +1255,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc008_mutex_trylock_busy() != 0) {
+		failed++;
+	}
+	if (ksc009_condition_broadcast() != 0) {
 		failed++;
 	}
 
