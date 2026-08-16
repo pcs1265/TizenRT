@@ -86,6 +86,7 @@
 #define KSC012_TIMEOUT_SECONDS 2
 #define KSC013_TIMEOUT_SECONDS 2
 #define KSC014_TIMEOUT_SECONDS 2
+#define KSC015_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -145,6 +146,8 @@ static int g_ksc013_worker_status;
 static int g_ksc013_exit_token;
 static pthread_mutex_t g_ksc014_lock;
 static pthread_cond_t g_ksc014_condition;
+static sem_t g_ksc015_done;
+static int g_ksc015_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -1721,6 +1724,78 @@ static int ksc014_condition_timeout(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-015: detached pthread lifecycle completion with a bounded observation. */
+static pthread_addr_t ksc015_detached_worker(pthread_addr_t arg)
+{
+	(void)arg;
+	return sem_post(&g_ksc015_done) == 0 ? &g_ksc015_exit_token : NULL;
+}
+
+static int ksc015_detached_thread(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int done_ready = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-015: START detached thread completion (timeout=%d s)\n",
+	       KSC015_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-015: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	if (sem_init(&g_ksc015_done, 0, 0) != 0) {
+		printf("KSC-015: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+	done_ready = 1;
+	if ((status = pthread_attr_init(&attr)) != 0) {
+		printf("KSC-015: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+	}
+	if (!failed && (status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask)) != 0) {
+		printf("KSC-015: FAIL affinity status=%d mask=0x%lx\n", status, (unsigned long)mask);
+		failed = 1;
+	}
+	if (!failed && (status = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED)) != 0) {
+		printf("KSC-015: FAIL pthread_attr_setdetachstate status=%d\n", status);
+		failed = 1;
+	}
+	if (!failed && (status = pthread_create(&worker, &attr, ksc015_detached_worker, NULL)) != 0) {
+		printf("KSC-015: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC015_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc015_done, &deadline) != 0) {
+			printf("KSC-015: FAIL worker completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-015: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-015: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (done_ready && sem_destroy(&g_ksc015_done) != 0) {
+		printf("KSC-015: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-015: %s detached completion mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -1777,6 +1852,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc014_condition_timeout() != 0) {
+		failed++;
+	}
+	if (ksc015_detached_thread() != 0) {
 		failed++;
 	}
 

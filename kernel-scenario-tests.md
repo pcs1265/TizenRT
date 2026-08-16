@@ -17,7 +17,8 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-012 | `hello_main.c`: an initially empty semaphore is waited with an absolute two-second deadline and then destroyed. | `KSC-012: PASS semaphore timeout errno=110` | PASS | PASS | PASS | PASS | pass |
 | KSC-013 | `hello_main.c`: an all-active-CPU-affined worker recursively locks and unlocks a `PTHREAD_MUTEX_RECURSIVE` mutex twice, reports completion through a two-second timed semaphore wait, and is joined before mutex/attribute cleanup. | `KSC-013: PASS recursive mutex status=0 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
-| KSC-014 | `hello_main.c`: creator locks an unsignaled condition variable's mutex, uses `pthread_cond_timedwait()` with an absolute two-second deadline, and destroys the condition variable and mutex after the expected timeout. | `KSC-014: PASS condition timeout status=110` | PASS | PASS | PASS | pending | pending |
+| KSC-014 | `hello_main.c`: creator locks an unsignaled condition variable's mutex, uses `pthread_cond_timedwait()` with an absolute two-second deadline, and destroys the condition variable and mutex after the expected timeout. | `KSC-014: PASS condition timeout status=110` | PASS | PASS | PASS | PASS | pass |
+| KSC-015 | `hello_main.c`: an all-active-CPU-affined worker is created detached, posts completion, and returns; creator uses a two-second semaphore deadline and cleans up the thread attribute and semaphore. | `KSC-015: PASS detached completion mask=...` and affinity evidence. | pending | pending | pending | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -1456,3 +1457,32 @@ QEMU: Terminated
 ```
 
 QEMU exited 0 after Ctrl-A x. KSC-014 passes `dramboot_elf`: required build, matching image refresh, literal boot to TASH, TEST-ID PASS output, and clean termination were all observed. Only `dramboot_elf_smp` remains pending, so no new scenario was added.
+
+## 2026-08-16 KSC-014 `dramboot_elf_smp` evidence
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf_smp && ./dbuild.sh
+```
+
+The matching ELF-SMP artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced the expected KSC-014 result and a clean aggregate harness result:
+
+```text
+KSC-014: START condition timeout (timeout=2 s)
+KSC-014: PASS condition timeout status=110
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+The SMP affinity evidence from the same run was `mask=0xf cpus=4` for KSC-004 through KSC-011 and KSC-013. QEMU exited 0 after Ctrl-A x. KSC-014 now passes all four required configurations; all existing TEST-IDs have recorded four-configuration outcomes (KSC-007 retains its recorded `dramboot_flat_smp` regression), so a later cycle may add exactly one new isolated scenario after inspecting the harness.
+
+## 2026-08-16 KSC-015 added; verification pending
+
+KSC-015 covers detached pthread lifecycle completion, an unrepresented reachable behavior after the prior join-based lifecycle, synchronization, locking, TLS, and timeout scenarios. Its worker receives an affinity mask containing every CPU in `CONFIG_SMP_NCPUS`, prints that mask as evidence, posts one completion semaphore, and returns detached. The creator bounds the completion observation with a two-second absolute deadline and cleans up its semaphore and thread attributes. No configuration has yet built, refreshed, booted, or invoked this new scenario; all four outcomes are pending.
