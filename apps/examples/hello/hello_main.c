@@ -92,6 +92,7 @@
 #define KSC018_TIMEOUT_SECONDS 2
 #define KSC019_TIMEOUT_SECONDS 2
 #define KSC020_TIMEOUT_SECONDS 2
+#define KSC021_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -168,6 +169,9 @@ static sem_t g_ksc020_attempting;
 static sem_t g_ksc020_done;
 static int g_ksc020_worker_status;
 static int g_ksc020_exit_token;
+static sem_t g_ksc021_done;
+static int g_ksc021_equal_status;
+static int g_ksc021_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -2315,6 +2319,108 @@ static int ksc020_mutex_blocking_handoff(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-021: an affinity-configured worker's pthread_t identity must compare
+ * equal to itself. The creator bounds completion, joins the worker, and
+ * destroys its attribute and semaphore on every path. */
+static pthread_addr_t ksc021_self_identity_worker(pthread_addr_t arg)
+{
+	pthread_t self;
+
+	(void)arg;
+	self = pthread_self();
+	g_ksc021_equal_status = pthread_equal(self, self);
+	if (!g_ksc021_equal_status || sem_post(&g_ksc021_done) != 0) {
+		return NULL;
+	}
+
+	return &g_ksc021_exit_token;
+}
+
+static int ksc021_pthread_self_identity(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int done_ready = 0;
+	int created = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-021: START pthread self identity (timeout=%d s)\n",
+	       KSC021_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-021: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	g_ksc021_equal_status = 0;
+	if (sem_init(&g_ksc021_done, 0, 0) != 0) {
+		printf("KSC-021: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+	done_ready = 1;
+	if ((status = pthread_attr_init(&attr)) != 0) {
+		printf("KSC-021: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	} else {
+		attr_ready = 1;
+	}
+	if (!failed && (status = pthread_attr_setaffinity_np(&attr, sizeof(mask),
+										 &mask)) != 0) {
+		printf("KSC-021: FAIL affinity status=%d mask=0x%lx\n", status,
+		       (unsigned long)mask);
+		failed = 1;
+	}
+	if (!failed && (status = pthread_create(&worker, &attr,
+						      ksc021_self_identity_worker, NULL)) != 0) {
+		printf("KSC-021: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	} else if (!failed) {
+		created = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC021_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc021_done, &deadline) != 0) {
+			printf("KSC-021: FAIL worker completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-021: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (failed && created) {
+		(void)pthread_cancel(worker);
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0 || (!failed && result != &g_ksc021_exit_token)) {
+			printf("KSC-021: FAIL pthread_join status=%d result=%p\n", status,
+		       result);
+			failed = 1;
+		}
+	}
+	if (!failed && !g_ksc021_equal_status) {
+		printf("KSC-021: FAIL pthread_equal status=%d\n", g_ksc021_equal_status);
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-021: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (done_ready && sem_destroy(&g_ksc021_done) != 0) {
+		printf("KSC-021: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+	printf("KSC-021: %s pthread self identity status=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc021_equal_status,
+	       (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -2389,6 +2495,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc020_mutex_blocking_handoff() != 0) {
+		failed++;
+	}
+	if (ksc021_pthread_self_identity() != 0) {
 		failed++;
 	}
 
