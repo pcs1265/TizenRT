@@ -13,7 +13,8 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-007 | `hello_main.c`: two workers with affinity covering all CPUs in `CONFIG_SMP_NCPUS` are released through a start gate into a two-party pthread barrier; each completion is semaphore-timed, both are joined, and exactly one serial-thread return is required. | `KSC-007: PASS barrier serial count=1 mask=...` and affinity evidence. | PASS | FAIL (2026-08-16 rerun) | PASS | PASS | regression |
 | KSC-008 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker calls `pthread_mutex_trylock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-008: PASS mutex trylock status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-009 | `hello_main.c`: two all-active-CPU-affined workers publish that they are condition-waiting; creator sets a predicate and broadcasts, then requires both timed completions and joins. | `KSC-009: PASS condition broadcast woken=2 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
-| KSC-010 | `hello_main.c`: creator holds a read lock while one all-active-CPU-affined worker calls `pthread_rwlock_trywrlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-010: PASS rwlock trywrite status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | pending | pending |
+| KSC-010 | `hello_main.c`: creator holds a read lock while one all-active-CPU-affined worker calls `pthread_rwlock_trywrlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-010: PASS rwlock trywrite status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
+| KSC-011 | `hello_main.c`: creator holds a write lock while one all-active-CPU-affined worker calls `pthread_rwlock_tryrdlock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-011: PASS rwlock tryread status=16 mask=...` and affinity evidence. | pending | pending | pending | pending | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -949,3 +950,40 @@ QEMU: Terminated
 ```
 
 QEMU exited 0 after Ctrl-A x. KSC-010 passes `dramboot_elf`; `dramboot_elf_smp` remains pending, so no new scenario may be added.
+
+## 2026-08-16 KSC-010 `dramboot_elf_smp` evidence; KSC-007 regression reproduced
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf_smp && ./dbuild.sh
+```
+
+The matching ELF-SMP artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-007: START barrier serial election (timeout=2 s)
+KSC-007: worker affinity mask=0xf cpus=4
+KSC-007: FAIL barrier completion errno=110
+KSC-007: FAIL barrier result[0]=-1
+KSC-007: FAIL barrier result[1]=-1
+KSC-007: FAIL serial count=0
+KSC-007: FAIL barrier serial count=0 mask=0xf
+KSC-010: START rwlock writer exclusion (timeout=2 s)
+KSC-010: worker affinity mask=0xf cpus=4
+KSC-010: PASS rwlock trywrite status=16 mask=0xf
+KSC: harness FAIL (1 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-010 passes `dramboot_elf_smp` and therefore all four required configurations. The existing reachable KSC-007 barrier timeout also reproduced under ELF-SMP; KSC-007 remains an explicit regression rather than an aggregate clean pass.
+
+## 2026-08-16 KSC-011 added; verification pending
+
+KSC-011 covers the reverse nonblocking reader/writer-lock exclusion from KSC-010: while the creator holds a write lock, one worker with affinity covering every CPU in `CONFIG_SMP_NCPUS` calls `pthread_rwlock_tryrdlock()` and must observe `EBUSY`. The worker posts its result through a two-second `sem_timedwait()` deadline; all setup, affinity, thread, wait, join, unlock, attribute-destroy, semaphore-destroy, and rwlock-destroy results are checked. A failed wait cancels and joins the worker before cleanup. This behavior is reachable through `hello` and is distinct from KSC-006 reader sharing and KSC-010's writer rejection. All four configuration outcomes are pending.

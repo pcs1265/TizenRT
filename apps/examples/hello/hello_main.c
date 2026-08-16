@@ -82,6 +82,7 @@
 #define KSC009_TIMEOUT_SECONDS 2
 #define KSC009_WORKER_COUNT 2
 #define KSC010_TIMEOUT_SECONDS 2
+#define KSC011_TIMEOUT_SECONDS 2
 
 #ifndef CONFIG_SMP_NCPUS
 #define CONFIG_SMP_NCPUS 1
@@ -130,6 +131,10 @@ static pthread_rwlock_t g_ksc010_lock;
 static sem_t g_ksc010_done;
 static int g_ksc010_trywrite_status;
 static int g_ksc010_exit_token;
+static pthread_rwlock_t g_ksc011_lock;
+static sem_t g_ksc011_done;
+static int g_ksc011_tryread_status;
+static int g_ksc011_exit_token;
 
 /****************************************************************************
  * Private Functions
@@ -1341,6 +1346,125 @@ static int ksc010_rwlock_trywrite_busy(void)
 	return failed ? -1 : 0;
 }
 
+/* KSC-011: a reader must observe EBUSY while its creator holds a write lock.
+ * This reverses KSC-010's reader-held/writer-rejected direction. The worker
+ * uses all-active-CPU affinity and reports its result through a bounded wait. */
+static pthread_addr_t ksc011_tryread_worker(pthread_addr_t arg)
+{
+	(void)arg;
+	g_ksc011_tryread_status = pthread_rwlock_tryrdlock(&g_ksc011_lock);
+	if (g_ksc011_tryread_status == 0) {
+		(void)pthread_rwlock_unlock(&g_ksc011_lock);
+	}
+	if (sem_post(&g_ksc011_done) != 0) {
+		return NULL;
+	}
+	return &g_ksc011_exit_token;
+}
+
+static int ksc011_rwlock_tryread_busy(void)
+{
+	struct timespec deadline;
+	pthread_attr_t attr;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	cpu_set_t mask = 0;
+	int attr_ready = 0;
+	int created = 0;
+	int locked = 0;
+	int status;
+	int i;
+	int failed = 0;
+
+	printf("KSC-011: START rwlock reader exclusion (timeout=%d s)\n",
+	       KSC011_TIMEOUT_SECONDS);
+	for (i = 0; i < CONFIG_SMP_NCPUS; i++) {
+		mask |= ((cpu_set_t)1 << i);
+	}
+	printf("KSC-011: worker affinity mask=0x%lx cpus=%d\n",
+	       (unsigned long)mask, CONFIG_SMP_NCPUS);
+	g_ksc011_tryread_status = -1;
+	status = pthread_rwlock_init(&g_ksc011_lock, NULL);
+	if (status != 0) {
+		printf("KSC-011: FAIL pthread_rwlock_init status=%d\n", status);
+		return -1;
+	}
+	if (sem_init(&g_ksc011_done, 0, 0) != 0) {
+		printf("KSC-011: FAIL sem_init errno=%d\n", errno);
+		(void)pthread_rwlock_destroy(&g_ksc011_lock);
+		return -1;
+	}
+	status = pthread_rwlock_wrlock(&g_ksc011_lock);
+	if (status != 0) {
+		printf("KSC-011: FAIL pthread_rwlock_wrlock status=%d\n", status);
+		failed = 1;
+	} else {
+		locked = 1;
+	}
+	if (!failed && (status = pthread_attr_init(&attr)) == 0) {
+		attr_ready = 1;
+		status = pthread_attr_setaffinity_np(&attr, sizeof(mask), &mask);
+		if (status != 0) {
+			printf("KSC-011: FAIL affinity status=%d mask=0x%lx\n", status,
+			       (unsigned long)mask);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-011: FAIL pthread_attr_init status=%d\n", status);
+		failed = 1;
+	}
+	if (!failed && (status = pthread_create(&worker, &attr,
+						      ksc011_tryread_worker, NULL)) == 0) {
+		created = 1;
+	} else if (!failed) {
+		printf("KSC-011: FAIL pthread_create status=%d\n", status);
+		failed = 1;
+	}
+	if (!failed && clock_gettime(CLOCK_REALTIME, &deadline) == 0) {
+		deadline.tv_sec += KSC011_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc011_done, &deadline) != 0) {
+			printf("KSC-011: FAIL worker completion errno=%d\n", errno);
+			failed = 1;
+		}
+	} else if (!failed) {
+		printf("KSC-011: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	}
+	if (failed && created) {
+		(void)pthread_cancel(worker);
+	}
+	if (created) {
+		status = pthread_join(worker, &result);
+		if (status != 0 || (!failed && result != &g_ksc011_exit_token)) {
+			printf("KSC-011: FAIL pthread_join status=%d result=%p\n", status,
+			       result);
+			failed = 1;
+		}
+	}
+	if (!failed && g_ksc011_tryread_status != EBUSY) {
+		printf("KSC-011: FAIL tryrdlock status=%d expected=%d\n",
+		       g_ksc011_tryread_status, EBUSY);
+		failed = 1;
+	}
+	if (locked && pthread_rwlock_unlock(&g_ksc011_lock) != 0) {
+		printf("KSC-011: FAIL pthread_rwlock_unlock\n");
+		failed = 1;
+	}
+	if (attr_ready && pthread_attr_destroy(&attr) != 0) {
+		printf("KSC-011: FAIL pthread_attr_destroy\n");
+		failed = 1;
+	}
+	if (sem_destroy(&g_ksc011_done) != 0 ||
+	    pthread_rwlock_destroy(&g_ksc011_lock) != 0) {
+		printf("KSC-011: FAIL cleanup\n");
+		failed = 1;
+	}
+	printf("KSC-011: %s rwlock tryread status=%d mask=0x%lx\n",
+	       failed ? "FAIL" : "PASS", g_ksc011_tryread_status,
+	       (unsigned long)mask);
+	return failed ? -1 : 0;
+}
+
 /****************************************************************************
  * hello_main
  ****************************************************************************/
@@ -1385,6 +1509,9 @@ int hello_main(int argc, char *argv[])
 		failed++;
 	}
 	if (ksc010_rwlock_trywrite_busy() != 0) {
+		failed++;
+	}
+	if (ksc011_rwlock_tryread_busy() != 0) {
 		failed++;
 	}
 
