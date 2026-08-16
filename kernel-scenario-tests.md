@@ -12,7 +12,7 @@ Scenarios live in `apps/examples/hello/hello_main.c`. A **PASS** requires a matc
 | KSC-006 | `hello_main.c`: two all-active-CPU-affined workers acquire a shared read lock, publish acquisition, then are released and joined; creator requires both acquisitions before either release. | `KSC-006: PASS rwlock concurrent readers=2 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-007 | `hello_main.c`: two workers with affinity covering all CPUs in `CONFIG_SMP_NCPUS` are released through a start gate into a two-party pthread barrier; each completion is semaphore-timed, both are joined, and exactly one serial-thread return is required. | `KSC-007: PASS barrier serial count=1 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
 | KSC-008 | `hello_main.c`: creator holds a mutex while one all-active-CPU-affined worker calls `pthread_mutex_trylock()`, reports its return through a timed semaphore wait, and is joined before cleanup. | `KSC-008: PASS mutex trylock status=16 mask=...` and affinity evidence. | PASS | PASS | PASS | PASS | pass |
-| KSC-009 | `hello_main.c`: two all-active-CPU-affined workers publish that they are condition-waiting; creator sets a predicate and broadcasts, then requires both timed completions and joins. | `KSC-009: PASS condition broadcast woken=2 mask=...` and affinity evidence. | pending | pending | pending | pending | pending |
+| KSC-009 | `hello_main.c`: two all-active-CPU-affined workers publish that they are condition-waiting; creator sets a predicate and broadcasts, then requires both timed completions and joins. | `KSC-009: PASS condition broadcast woken=2 mask=...` and affinity evidence. | pending | pending | pending | PASS | pending |
 
 ## 2026-08-16 completion evidence for KSC-001 through KSC-003
 
@@ -702,4 +702,43 @@ QEMU exited 0 after Ctrl-A x. KSC-008 passes all four required configurations. A
 
 ## 2026-08-16 KSC-009 added; verification pending
 
-KSC-009 covers condition-variable broadcast wakeup, distinct from KSC-003's single-waiter signal path. Two workers receive an affinity mask containing every CPU derived from `CONFIG_SMP_NCPUS`, acquire the shared mutex, and publish readiness before condition-timed-waiting on a predicate. The creator uses two-second timed semaphore waits to require both waiters, sets the predicate under the mutex, broadcasts, then requires both completion posts and joins both workers. Failure paths still set the predicate and broadcast before joining, and all synchronization objects are destroyed afterward. A compilation-only `cd os && ./dbuild.sh` succeeded in the current `dramboot_elf_smp` configuration, but no qualifying image refresh or literal QEMU boot has been performed with KSC-009; all four verification outcomes remain pending.
+KSC-009 covers condition-variable broadcast wakeup, distinct from KSC-003's single-waiter signal path. Two workers receive an affinity mask containing every CPU derived from `CONFIG_SMP_NCPUS`, acquire the shared mutex, and publish readiness before condition-timed-waiting on a predicate. The creator uses two-second timed semaphore waits to require both waiters, sets the predicate under the mutex, broadcasts, then requires both completion posts and joins both workers. Failure paths still set the predicate and broadcast before joining, and all synchronization objects are destroyed afterward. At creation, all four verification outcomes were pending.
+
+## 2026-08-16 KSC-009 `dramboot_elf_smp` evidence
+
+The required configuration/build succeeded with:
+
+```sh
+cd os && ./dbuild.sh distclean configure qemu-virt dramboot_elf_smp && ./dbuild.sh
+```
+
+The matching ELF-SMP artifact refresh succeeded with:
+
+```sh
+printf '0\n' | TOPDIR="$PWD" bash build/configs/qemu-virt/qemu-virt_download.sh all
+```
+
+A literal root-level `./run_qemu.sh` boot reached `TASH>>`. Invoking `hello` produced:
+
+```text
+KSC-001: PASS task create -> wake -> exit -> join
+KSC-002: PASS mutex handoff counter=64
+KSC-003: PASS condition predicate=1
+KSC-004: worker affinity mask=0xf cpus=4
+KSC-004: PASS thread-specific value=0 mask=0xf
+KSC-005: worker affinity mask=0xf cpus=4
+KSC-005: PASS pthread_once initializer count=1 mask=0xf
+KSC-006: worker affinity mask=0xf cpus=4
+KSC-006: PASS rwlock concurrent readers=2 mask=0xf
+KSC-007: worker affinity mask=0xf cpus=4
+KSC-007: PASS barrier serial count=1 mask=0xf
+KSC-008: worker affinity mask=0xf cpus=4
+KSC-008: PASS mutex trylock status=16 mask=0xf
+KSC-009: START condition broadcast (timeout=2 s)
+KSC-009: worker affinity mask=0xf cpus=4
+KSC-009: PASS condition broadcast woken=2 mask=0xf
+KSC: harness PASS (0 failed)
+QEMU: Terminated
+```
+
+QEMU exited 0 after Ctrl-A x. KSC-009 passes `dramboot_elf_smp`; `dramboot_flat`, `dramboot_flat_smp`, and `dramboot_elf` remain pending, so no new scenario may be added yet.
