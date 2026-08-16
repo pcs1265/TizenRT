@@ -55,7 +55,111 @@
  ****************************************************************************/
 
 #include <tinyara/config.h>
+
+#include <errno.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include <stdio.h>
+#include <time.h>
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define KSC001_TIMEOUT_SECONDS 2
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static sem_t g_ksc001_ready;
+static char g_ksc001_exit_token;
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/* KSC-001 worker: publish that it ran, then exercise normal pthread exit. */
+
+static pthread_addr_t ksc001_worker(pthread_addr_t arg)
+{
+	(void)arg;
+
+	if (sem_post(&g_ksc001_ready) != 0) {
+		return NULL;
+	}
+
+	return &g_ksc001_exit_token;
+}
+
+/* KSC-001: scheduler/task lifecycle.
+ *
+ * Purpose: Verify a created task runs, wakes its creator, returns a value,
+ * and is reaped by pthread_join().  sem_timedwait() bounds the observation;
+ * a timeout triggers cancellation and join cleanup before the semaphore is
+ * destroyed.
+ */
+
+static int ksc001_task_lifecycle(void)
+{
+	struct timespec deadline;
+	pthread_t worker;
+	pthread_addr_t result = NULL;
+	int status;
+	int failed = 0;
+
+	printf("KSC-001: START task lifecycle (timeout=%d s)\n",
+	       KSC001_TIMEOUT_SECONDS);
+
+	if (sem_init(&g_ksc001_ready, 0, 0) != 0) {
+		printf("KSC-001: FAIL sem_init errno=%d\n", errno);
+		return -1;
+	}
+
+	status = pthread_create(&worker, NULL, ksc001_worker, NULL);
+	if (status != 0) {
+		printf("KSC-001: FAIL pthread_create status=%d\n", status);
+		(void)sem_destroy(&g_ksc001_ready);
+		return -1;
+	}
+
+	if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+		printf("KSC-001: FAIL clock_gettime errno=%d\n", errno);
+		failed = 1;
+	} else {
+		deadline.tv_sec += KSC001_TIMEOUT_SECONDS;
+		if (sem_timedwait(&g_ksc001_ready, &deadline) != 0) {
+			printf("KSC-001: FAIL worker notification errno=%d\n", errno);
+			failed = 1;
+		}
+	}
+
+	if (failed) {
+		/* A non-notifying worker must not be left behind by this test. */
+		status = pthread_cancel(worker);
+		if (status != 0) {
+			printf("KSC-001: cleanup pthread_cancel status=%d\n", status);
+		}
+	}
+
+	status = pthread_join(worker, &result);
+	if (status != 0) {
+		printf("KSC-001: FAIL pthread_join status=%d\n", status);
+		failed = 1;
+	} else if (!failed && result != &g_ksc001_exit_token) {
+		printf("KSC-001: FAIL exit value=%p\n", result);
+		failed = 1;
+	}
+
+	if (sem_destroy(&g_ksc001_ready) != 0) {
+		printf("KSC-001: FAIL sem_destroy errno=%d\n", errno);
+		failed = 1;
+	}
+
+	printf("KSC-001: %s task create -> wake -> exit -> join\n",
+	       failed ? "FAIL" : "PASS");
+	return failed ? -1 : 0;
+}
 
 /****************************************************************************
  * hello_main
@@ -67,6 +171,16 @@ int main(int argc, FAR char *argv[])
 int hello_main(int argc, char *argv[])
 #endif
 {
-	printf("Hello, World!!\n");
-	return 0;
+	int failed = 0;
+
+	(void)argc;
+	(void)argv;
+	printf("KSC: qemu-virt kernel scenario harness start\n");
+
+	if (ksc001_task_lifecycle() != 0) {
+		failed++;
+	}
+
+	printf("KSC: harness %s (%d failed)\n", failed ? "FAIL" : "PASS", failed);
+	return failed ? 1 : 0;
 }
