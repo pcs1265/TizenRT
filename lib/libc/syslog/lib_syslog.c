@@ -156,6 +156,8 @@ static inline int vsyslog_internal(FAR const char *fmt, va_list ap)
 #elif CONFIG_NFILE_STREAMS > 0
 	lib_stdoutstream(&stream, stdout);
 
+	lib_take_semaphore(stream.stream);
+
 #if defined(CONFIG_SYSLOG_TIMESTAMP)
 	/* Pre-pend the message with the current time */
 
@@ -164,6 +166,7 @@ static inline int vsyslog_internal(FAR const char *fmt, va_list ap)
 	}
 #endif
 	ret = lib_vsprintf(&stream.public,fmt,ap);
+	lib_give_semaphore(stream.stream);
 
 	return ret;
 
